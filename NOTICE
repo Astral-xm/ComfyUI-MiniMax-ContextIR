@@ -80,9 +80,14 @@ Third-party components / 第三方组件
    MiniMax H3 Face Ref Video (h3_ref_prep.py) is a clean-room
    implementation written from that package's published README behaviour.
    No source code from it is copied, ported, or bundled.
+   Thanks to the original author of ComfyUI-AIToolkit-MiniMaxH3 for documenting
+   this reference-video preparation recipe, and to ostris/ai-toolkit for the
+   upstream minimax_h3_ref2va sampling flow it describes.
    MiniMax H3 Face Ref Video 节点（h3_ref_prep.py）仅依据该包 README
    公开描述的行为独立实现；未复制、移植或打包其任何源码。该包未提供许可证
-   文件，如需复用其源码请先取得作者授权。
+   文件，如需复用其源码请先取得作者授权。感谢 ComfyUI-AIToolkit-MiniMaxH3
+   原作者公开该参考视频处理口径，也感谢 ostris/ai-toolkit 提供
+   minimax_h3_ref2va 采样流程参考。
 
 Thanks to all upstream projects and contributors.
 感谢所有上游项目和贡献者。

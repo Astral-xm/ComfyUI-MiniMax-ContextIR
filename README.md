@@ -381,7 +381,9 @@ Unified/Context IR 节点
 
 本节点是根据该公开行为规格独立实现的 clean-room 版本，没有复制
 `ComfyUI-AIToolkit-MiniMaxH3` 的源码。原包未提供许可证文件，因此这里只复用
-其公开描述的处理契约。
+其公开描述的处理契约。感谢 `ComfyUI-AIToolkit-MiniMaxH3` 原作者公开这套
+参考视频预处理口径，也感谢 [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit)
+提供了 `minimax_h3_ref2va` 的采样流程参考。
 
 ---
 
@@ -410,6 +412,12 @@ This project contains or modifies code / algorithms from:
 [ptmaster / ComfyUI-PT_H3ConcatAVLatent](https://github.com/ptmaster/ComfyUI-PT_H3ConcatAVLatent) — 上游未标注许可证 / license not specified
 [T8mars / comfyui-minimax-h3-audio-T8](https://github.com/T8mars/comfyui-minimax-h3-audio-T8) — GPL-3.0-or-later
 ComfyUI-AIToolkit-MiniMaxH3 — 上游未提供许可证文件；本插件仅按其公开行为说明独立实现，不包含其源码
+
+Special thanks to the original author of ComfyUI-AIToolkit-MiniMaxH3 for publishing
+the reference-video preparation behaviour, and to ostris/ai-toolkit for the
+`minimax_h3_ref2va` sampling recipe that it documents.
+特别感谢 ComfyUI-AIToolkit-MiniMaxH3 原作者公开参考视频预处理行为规格，也感谢
+ostris/ai-toolkit 提供 `minimax_h3_ref2va` 采样流程参考。
 
 Thanks to all upstream projects and contributors.
 感谢所有上游项目和贡献者。
