@@ -1,4 +1,4 @@
-"""MiniMax H3 reference-video preparation, ai-toolkit compatible.
+"""MiniMax H3 face reference-video preparation, ai-toolkit compatible.
 
 Clean-room implementation written from the published behaviour of the
 ComfyUI-AIToolkit-MiniMaxH3 reference-video node. That package ships no
@@ -109,13 +109,13 @@ def _fit_frames(frames: torch.Tensor, target_megapixels: float) -> tuple[torch.T
     return frames, out_width, out_height
 
 
-class MiniMaxH3AIToolkitRefVideo(io.ComfyNode):
+class MiniMaxH3FaceRefVideo(io.ComfyNode):
     """Convert a VIDEO into ai-toolkit style ref2va inputs."""
 
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id="MiniMaxH3AIToolkitRefVideo",
+            node_id="MiniMaxH3FaceRefVideo",
             display_name="MiniMax H3 Face Ref Video",
             category="MiniMax ContextIR",
             description=(
