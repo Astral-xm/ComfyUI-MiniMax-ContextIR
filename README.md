@@ -34,7 +34,7 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
 - **MiniMax H3 Tiled Sampler**：替代 SamplerCustomAdvanced 的分块采样器；把 AV latent
   沿 H/W 轴切条逐条采样，R2V 参考条件按条同步裁切（修复拼接重复），关键帧按区域
   裁切，音轨完整透传，接缝带二次精修；
-- **MiniMax H3 AI-Toolkit Ref Video**：把任意帧率的参考视频整理成 ai-toolkit
+- **MiniMax H3 Face Ref Video**：把任意帧率的参考视频整理成 ai-toolkit
   ref2va 口径的 24fps 帧、17n+5 帧数、同步音轨与 /32 对齐的生成宽高；
 - **MiniMax H3 Sigma Refiner**：低噪细节精修器；在低 Sigma 区间局部加步，消除高速
   运动边缘的马赛克与像素紊乱，插在调度器和采样器之间使用；
@@ -363,7 +363,7 @@ Unified/Context IR 节点
 
 ---
 
-## 节点 9：MiniMax H3 AI-Toolkit Ref Video
+## 节点 9：MiniMax H3 Face Ref Video
 
 按 ai-toolkit `minimax_h3_ref2va` 的参考视频口径做预处理，输出可直接接到
 `MiniMaxH3ReferenceToVideo` 的 `ref_video_i` / `ref_video_audio_i`：

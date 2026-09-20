@@ -116,7 +116,7 @@ class MiniMaxH3AIToolkitRefVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="MiniMaxH3AIToolkitRefVideo",
-            display_name="MiniMax H3 AI-Toolkit Ref Video",
+            display_name="MiniMax H3 Face Ref Video",
             category="MiniMax ContextIR",
             description=(
                 "Resamples a reference VIDEO to 24 fps with real-time pacing, "
@@ -185,4 +185,3 @@ class MiniMaxH3AIToolkitRefVideo(io.ComfyNode):
             f"{output_frames} frames @24fps, canvas {out_width}x{out_height}"
         )
         return io.NodeOutput(frames, audio, out_width, out_height, output_frames)
-

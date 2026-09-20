@@ -77,10 +77,10 @@ Third-party components / 第三方组件
 
 8. ComfyUI-AIToolkit-MiniMaxH3 (community package)
    License: not specified - the distributed package contains no LICENSE file.
-   MiniMax H3 AI-Toolkit Ref Video (h3_ref_prep.py) is a clean-room
+   MiniMax H3 Face Ref Video (h3_ref_prep.py) is a clean-room
    implementation written from that package's published README behaviour.
    No source code from it is copied, ported, or bundled.
-   MiniMax H3 AI-Toolkit Ref Video 节点（h3_ref_prep.py）仅依据该包 README
+   MiniMax H3 Face Ref Video 节点（h3_ref_prep.py）仅依据该包 README
    公开描述的行为独立实现；未复制、移植或打包其任何源码。该包未提供许可证
    文件，如需复用其源码请先取得作者授权。
 
