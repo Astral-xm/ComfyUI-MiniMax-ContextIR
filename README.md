@@ -5,7 +5,7 @@
 
 # ComfyUI-MiniMax-ContextIR
 
-MiniMax H3 视频生成全家桶：一个 ComfyUI 插件，八个节点，覆盖
+MiniMax H3 视频生成全家桶：一个 ComfyUI 插件，十一个节点，覆盖
 “提示词优化 → 素材加载 → 条件构建 → 音频锁定 → 采样输出”的完整 H3 工作流。
 既可直接配合官方 MiniMax H3 本地模型（FLOW_AV / fl2va）使用，也可调用
 H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词。
@@ -34,6 +34,8 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
 - **MiniMax H3 Tiled Sampler**：替代 SamplerCustomAdvanced 的分块采样器；把 AV latent
   沿 H/W 轴切条逐条采样，R2V 参考条件按条同步裁切（修复拼接重复），关键帧按区域
   裁切，音轨完整透传，接缝带二次精修；
+- **MiniMax H3 AI-Toolkit Ref Video**：把任意帧率的参考视频整理成 ai-toolkit
+  ref2va 口径的 24fps 帧、17n+5 帧数、同步音轨与 /32 对齐的生成宽高；
 - **MiniMax H3 Sigma Refiner**：低噪细节精修器；在低 Sigma 区间局部加步，消除高速
   运动边缘的马赛克与像素紊乱，插在调度器和采样器之间使用；
 
@@ -361,6 +363,28 @@ Unified/Context IR 节点
 
 ---
 
+## 节点 9：MiniMax H3 AI-Toolkit Ref Video
+
+按 ai-toolkit `minimax_h3_ref2va` 的参考视频口径做预处理，输出可直接接到
+`MiniMaxH3ReferenceToVideo` 的 `ref_video_i` / `ref_video_audio_i`：
+
+- `video`：任意源帧率的参考视频
+- `target_megapixels`：目标生成像素面积，`0.258` 约等于 672×384
+- `max_length`：24fps 帧数上限，`0` 表示整段
+
+输出：
+
+- `frames`：按真实时间轴重采样到 24fps，帧数向下吸附到 `17n+5`
+- `audio`：裁到与保留帧相同的时间窗；无音轨时输出静音占位
+- `width` / `height`：按参考视频自身比例、目标像素面积和 /32 网格计算
+- `length`：保留下来的 24fps 帧数
+
+本节点是根据该公开行为规格独立实现的 clean-room 版本，没有复制
+`ComfyUI-AIToolkit-MiniMaxH3` 的源码。原包未提供许可证文件，因此这里只复用
+其公开描述的处理契约。
+
+---
+
 ## Credits / License · 版权信息 / 许可
 
 This project is distributed as a whole under GNU GPL v3.0. See
@@ -385,6 +409,7 @@ This project contains or modifies code / algorithms from:
 [Adudeguyman / ComfyUI-Fantastic-MiniMaxH3-PromptBuilder](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder) — MIT
 [ptmaster / ComfyUI-PT_H3ConcatAVLatent](https://github.com/ptmaster/ComfyUI-PT_H3ConcatAVLatent) — 上游未标注许可证 / license not specified
 [T8mars / comfyui-minimax-h3-audio-T8](https://github.com/T8mars/comfyui-minimax-h3-audio-T8) — GPL-3.0-or-later
+ComfyUI-AIToolkit-MiniMaxH3 — 上游未提供许可证文件；本插件仅按其公开行为说明独立实现，不包含其源码
 
 Thanks to all upstream projects and contributors.
 感谢所有上游项目和贡献者。

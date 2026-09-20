@@ -6,6 +6,7 @@ from .h3_concat_av import MiniMaxH3ConcatAVLatent
 from .h3_context_ir import MiniMaxH3ContextIR
 from .h3_fant_nodes import MiniMaxH3MediaLoaderFantastic, MiniMaxH3ReferenceSplitter
 from .h3_resolution import MiniMaxH3ResolutionSelector
+from .h3_ref_prep import MiniMaxH3AIToolkitRefVideo
 from .h3_tiled_sampler import H3TiledSampler as MiniMaxH3TiledSampler
 from .h3_unified import MiniMaxH3UnifiedToVideo
 from .h3_sigma_refiner import H3SigmaRefiner as MiniMaxH3SigmaRefiner
@@ -31,6 +32,7 @@ class MiniMaxH3Extension(ComfyExtension):
             MiniMaxH3MediaLoaderFantastic,
             MiniMaxH3ReferenceSplitter,
             MiniMaxH3ResolutionSelector,
+            MiniMaxH3AIToolkitRefVideo,
             MiniMaxH3TiledSampler,
             MiniMaxH3SigmaRefiner,
         ]
@@ -50,6 +52,7 @@ __all__ = [
     "MiniMaxH3ReferenceSplitter",
     "MiniMaxH3TiledSampler",
     "MiniMaxH3ResolutionSelector",
+    "MiniMaxH3AIToolkitRefVideo",
     "MiniMaxH3SigmaRefiner",
     "MiniMaxH3Extension",
     "comfy_entrypoint",
