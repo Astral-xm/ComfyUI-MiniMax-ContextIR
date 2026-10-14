@@ -122,9 +122,9 @@ pip install -r requirements.txt
 | `mode` | auto / t2va / fl2va / ref2va |
 | `width` / `height` | 本地画布（32 倍数，单边上限 16384；与官方节点一致，不再额外限制 2MP 面积） |
 | `duration` | 场景时长（秒，1–30，浮点；2–15 是训练范围，15–30 未测试） |
+| `length_override` | 0 = 使用 duration/fps；>0 = 直接使用官方 raw 帧数并向上吸附到 17n+5 |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
-| `length_override` | 0 = 使用 duration/fps；>0 = 直接使用官方 raw 帧数并向上吸附到 17n+5 |
 | `first_frame` / `last_frame` | 关键帧 |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 

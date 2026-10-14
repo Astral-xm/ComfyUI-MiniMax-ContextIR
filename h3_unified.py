@@ -620,12 +620,12 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 io.Int.Input("height", default=768, min=32, max=16384, step=32),
                 io.Float.Input("duration", default=5.0, min=1, max=30, step=0.01,
                                tooltip="Scene duration in seconds (1-30). H3's trained range is roughly 5-15s; longer is allowed but untested. Frame count is computed automatically via max(5, round(duration*fps)) snapped up to the 17k+5 grid."),
+                io.Int.Input("length_override", default=0, min=0, max=3600, step=1,
+                             tooltip="0 uses duration/fps. >0 uses this raw 24fps frame count instead, snapped up to the official 17n+5 grid."),
                 io.Int.Input("fps", default=24, min=1, max=60,
                              tooltip="Frame rate used to convert duration to frames."),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
                                tooltip="'match' scales each reference image (down only, aspect-preserving) to the generation pixel area; 'max' uses a 2048px short edge for best identity fidelity but is slower."),
-                io.Int.Input("length_override", default=0, min=0, max=3600, step=1,
-                             tooltip="0 uses duration/fps. >0 uses this raw 24fps frame count instead, snapped up to the official 17n+5 grid."),
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
                 io.Autogrow.Input("ref_images", optional=True,
@@ -656,8 +656,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, clip, video_vae, audio_vae=None, prompt="", width=1344, height=768,
-                duration=5.0, fps=24, mode="auto", ref_image_size="match",
-                length_override=0,
+                duration=5.0, length_override=0, fps=24, mode="auto",
+                ref_image_size="match",
                 first_frame=None, last_frame=None,
                 ref_images=None, ref_videos=None, ref_video_audios=None,
                 ref_audios=None) -> io.NodeOutput:
