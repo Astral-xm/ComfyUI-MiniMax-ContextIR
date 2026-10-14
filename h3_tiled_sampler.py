@@ -189,37 +189,40 @@ def _compute_tile_starts(total, n_tiles, overlap):
     return starts, tile_size
 
 
-def _make_gaussian_fade(n: int, dtype, device, rising: bool) -> torch.Tensor:
-    """Half-Gaussian fade used by the Mixture-of-Diffusers style blend."""
-    if n <= 1:
-        return torch.ones(max(1, n), dtype=dtype, device=device)
-    t = torch.linspace(0.0, 1.0, n, dtype=torch.float32, device=device)
-    fade = torch.exp(-2.0 * (1.0 - t) ** 2)
-    if not rising:
-        fade = fade.flip(0)
-    return fade.to(dtype)
+def _make_gaussian_window_1d(length: int, dtype, device) -> torch.Tensor:
+    """Exact AVPack whole-window Gaussian blend."""
+    if length <= 1:
+        return torch.ones(max(1, length), dtype=dtype, device=device)
+    index = torch.arange(length, dtype=torch.float32, device=device)
+    center = (length - 1) / 2.0
+    distance = (index - center).abs()
+    if length % 2 == 1:
+        half = center
+        window = torch.exp(-2.0 * (distance / half) ** 2)
+    else:
+        distance = (distance - 0.5).clamp(min=0.0)
+        triangular = distance * (distance + 1.0) / 2.0
+        denom = (length - 1) ** 2
+        window = torch.exp(-16.0 * triangular / denom)
+    return window.to(dtype)
 
 
 def _make_window_1d(length, ov_left, ov_right, dtype, device, blend="cosine"):
-    w = torch.ones(length, dtype=dtype, device=device)
     gaussian = str(blend or "cosine").lower() == "gaussian"
+    if gaussian:
+        return _make_gaussian_window_1d(length, dtype, device)
+    w = torch.ones(length, dtype=dtype, device=device)
     if ov_left > 0:
         n = min(ov_left, length // 2 + 1)
         if n > 0:
-            if gaussian:
-                fade = _make_gaussian_fade(n, dtype, device, rising=True)
-            else:
-                t = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[:-1]
-                fade = 0.5 - 0.5 * torch.cos(t * 3.14159265)
+            t = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[:-1]
+            fade = 0.5 - 0.5 * torch.cos(t * 3.14159265)
             w[:n] = torch.minimum(w[:n], fade)
     if ov_right > 0:
         n = min(ov_right, length // 2 + 1)
         if n > 0:
-            if gaussian:
-                fade = _make_gaussian_fade(n, dtype, device, rising=False)
-            else:
-                t = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[:-1]
-                fade = 0.5 - 0.5 * torch.cos((1 - t) * 3.14159265)
+            t = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[:-1]
+            fade = 0.5 - 0.5 * torch.cos((1 - t) * 3.14159265)
             w[-n:] = torch.minimum(w[-n:], fade)
     return w
 
