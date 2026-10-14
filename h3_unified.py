@@ -624,8 +624,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                                tooltip="auto detects the task from connected inputs. Explicit modes ignore extra inputs and raise only when a required input is missing: t2va ignores all media; fl2va requires at least one keyframe (maps to i2va/l2va/fl2va) and ignores references; ref2va requires at least one reference and uses keyframes + references together."),
                 io.Int.Input("width", default=1344, min=32, max=16384, step=32),
                 io.Int.Input("height", default=768, min=32, max=16384, step=32),
-                io.Float.Input("duration", default=5.0, min=1, max=15, step=0.01,
-                               tooltip="Scene duration in seconds. Frame count is computed automatically via max(5, round(duration*fps)) snapped up to the 17k+5 grid."),
+                io.Float.Input("duration", default=5.0, min=1, max=30, step=0.01,
+                               tooltip="Scene duration in seconds (1-30). H3's trained range is roughly 5-15s; longer is allowed but untested. Frame count is computed automatically via max(5, round(duration*fps)) snapped up to the 17k+5 grid."),
                 io.Int.Input("fps", default=24, min=1, max=60,
                              tooltip="Frame rate used to convert duration to frames."),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
@@ -640,7 +640,7 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                         prefix="ref_image_", min=0, max=9)),
                 io.Autogrow.Input("ref_videos", optional=True,
                     template=io.Autogrow.TemplatePrefix(
-                        input=io.Image.Input("ref_video", tooltip="Reference video frames at 24 fps (2-15s)"),
+                        input=io.Image.Input("ref_video", tooltip="Reference video frames at 24 fps (2-30s; 2-15s is the trained range)"),
                         prefix="ref_video_", min=0, max=3)),
                 io.Autogrow.Input("ref_video_audios", optional=True,
                     template=io.Autogrow.TemplatePrefix(
@@ -671,8 +671,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
         if override > 0:
             length = align_frame_count(override)
         else:
-            if not 1 <= float(duration) <= 15:
-                raise ValueError("Duration must be between 1 and 15 seconds.")
+            if not 1 <= float(duration) <= 30:
+                raise ValueError("Duration must be between 1 and 30 seconds.")
             if not 1 <= int(fps) <= 60:
                 raise ValueError("FPS must be between 1 and 60.")
             length = duration_to_length(float(duration), int(fps))

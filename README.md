@@ -121,7 +121,7 @@ pip install -r requirements.txt
 | `prompt` | 输入提示词（用 `<Picture i>` / `<Video k>` / `<Audio j>` 引用已连接媒体） |
 | `mode` | auto / t2va / fl2va / ref2va |
 | `width` / `height` | 本地画布（32 倍数，上限 1920x1088） |
-| `duration` | 场景时长（秒，1–15，浮点） |
+| `duration` | 场景时长（秒，1–30，浮点；2–15 是训练范围，15–30 未测试） |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
 | `length_override` | 0 = 使用 duration/fps；>0 = 直接使用官方 raw 帧数并向上吸附到 17n+5 |
@@ -138,7 +138,7 @@ pip install -r requirements.txt
 
 ### 注意
 
-- 参考视频建议 48–360 帧（2–15 秒，24fps）。
+- 参考视频建议 48–720 帧（2–30 秒，24fps）；2–15 秒是训练范围，15–30 秒属于未测试区间。
 - 帧数按官方公式自动计算并对齐到 17n+5：
   `max(5, round(duration*fps)) + (5 - (max(5, round(duration*fps)) % 17)) % 17`。
 - 显式模式会屏蔽（忽略）不属于该模式的输入，而不是报错；只有缺失必需输入才报错：
@@ -166,7 +166,7 @@ pip install -r requirements.txt
 
 - 官方现在用 Image to Video / Reference to Video 两个节点 + AddGuide 组合；
   本插件继续保留单节点 Unified 的 hybrid 结构，AddGuide 仍使用官方节点
-- Unified 仍保留 duration/fps 输入和 1–15 秒默认范围；raw length 只是额外入口
+- Unified 仍保留 duration/fps 输入，默认范围已扩到 1–30 秒；raw length 只是额外入口
 - Unified 仍使用 1920×1088 的整体画布上限，不采用官方 `adapt_canvas` 的
   `768×1344` 参考画布上限
 - 官方 Fun ControlNet、Empty AV Latent、ModelSamplingMiniMaxH3 不并入 Unified；
@@ -337,7 +337,7 @@ Unified/Context IR 节点
   （不发送视频画面），标签也只保留 `<V_Audio N>`；
 - 面板顶部有 **中 / EN** 语言切换按钮，一键切换全界面中英文（含按钮、提示、
   裁剪弹窗），选择会保存在浏览器本地；
-- 2–15s 片段与每类 15s 总量限制提示（前端）；每类初始只显示一个 "+" 槽，
+- 2–30s 片段与每类 30s 总量限制提示（前端；2–15s 为训练范围）；每类初始只显示一个 "+" 槽，
   点击或拖入即加载素材，删除素材后格子自动收回；图片槽为 1:1 正方形
   （3×3，每格约 1/9），超过 9 张后侧边滚动查看；上限 90 图 / 30 视频 / 90 音频；
 - 媒体预设（presets）保存、加载、删除；

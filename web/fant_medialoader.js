@@ -28,9 +28,10 @@ const SPLIT_RES_SOCKETS = [
   { name: "width_2", type: "INT" }, { name: "height_2", type: "INT" },
   { name: "duration", type: "FLOAT" },
 ];
-// H3 policy: 2-15s per reference clip, 15s total per media type.
+// H3 policy: 2-30s per reference clip, 30s total per media type.
+// The model's trained range is 2-15s; 15-30s is accepted but untested.
 export const TRIM_FPS = 24;   // H3's timeline; used for frame-stepping
-export const CLIP = { min: 2, max: 15, totalPerType: 15 };
+export const CLIP = { min: 2, max: 30, totalPerType: 30, trainedMax: 15 };
 
 /** Audio clips in play, counting split soundtracks — they spend the same
  *  budget as standalone clips even though they use a different slot group. */
@@ -53,7 +54,7 @@ export function effDuration(it) {
   return Math.max(0, b - a);
 }
 
-/** Total seconds per media type, for the 15s-per-type ceiling. */
+/** Total seconds per media type, for the 30s-per-type ceiling. */
 export function durations(all) {
   const on = (all || []).filter(isOn);
   const sum = (list) => list.reduce((t, i) => t + effDuration(i), 0);
@@ -150,8 +151,8 @@ const LANG_PAIRS = [
   ["Couldn't read that frame.", "无法读取该帧。"],
   ["Frame isn't ready yet — let the preview load, then try again.",
     "画面还没准备好 — 等预览加载后再试。"],
-  ["Kept span is under 2s. MiniMax H3 was trained on 2\u201315s reference clips; shorter ones tend to be weakly followed or ignored. Widen the range, or pad short files (like sound effects) with silence before loading.",
-    "保留区间不足 2 秒。MiniMax H3 的训练数据是 2–15 秒参考片段；更短的内容通常效果弱或不被采用。请拉宽区间，或先给短文件（如音效）补静音再加载。"],
+  ["Kept span is under 2s. MiniMax H3 was trained on 2\u201315s reference clips; 15\u201330s is accepted but untested. Shorter clips tend to be weakly followed or ignored. Widen the range, or pad short files (like sound effects) with silence before loading.",
+    "保留区间不足 2 秒。MiniMax H3 的训练数据是 2–15 秒参考片段；15–30 秒可用但属于未测试区间。更短的内容通常效果弱或不被采用。请拉宽区间，或先给短文件（如音效）补静音再加载。"],
   ["← → step a frame (shift = 10 frames) · space play · [ ] set start/end here · C capture frame",
     "← → 逐帧（shift=10 帧）· 空格播放 · [ ] 在此设置起止 · C 截取帧"],
   ["← → nudge 0.1s (+shift = 1s) · space play · [ ] set start/end here",
@@ -1216,9 +1217,10 @@ class TrimModal {
     this.readout.classList.toggle("bad", bad);
     this.readout.title = bad
       ? tr(`Kept span is under ${CLIP.min}s. MiniMax H3 was trained on ` +
-          `${CLIP.min}\u2013${CLIP.max}s reference clips; shorter ones tend to be ` +
-          "weakly followed or ignored. Widen the range, or pad short files " +
-          "(like sound effects) with silence before loading.") : "";
+          `${CLIP.min}\u2013${CLIP.trainedMax}s reference clips; this loader accepts ` +
+          `up to ${CLIP.max}s, but ${CLIP.trainedMax}\u2013${CLIP.max}s is untested. ` +
+          "Shorter clips tend to be weakly followed or ignored. Widen the range, or " +
+          "pad short files (like sound effects) with silence before loading.") : "";
   }
 
   updatePlayhead(t) {
@@ -2427,9 +2429,10 @@ class LoaderPanel {
       i.duration && effDuration(i) < CLIP.min);
     if (short.length)
       problems.push(`${short.map((i) => i.name).join(", ")}: shorter than ` +
-        `${CLIP.min}s. The model was trained on ${CLIP.min}\u2013${CLIP.max}s ` +
-        "reference clips, so very short ones may be weakly followed or " +
-        "ignored \u2014 pad with silence or use a longer take.");
+        `${CLIP.min}s. The model was trained on ${CLIP.min}\u2013${CLIP.trainedMax}s ` +
+        `reference clips; up to ${CLIP.max}s is accepted but ` +
+        `${CLIP.trainedMax}\u2013${CLIP.max}s is untested, so very short clips may be ` +
+        "weakly followed or ignored \u2014 pad with silence or use a longer take.");
     if (!this.items.some((i) => isOn(i) && (i.kind === "picture" ||
         i.kind === "video")) && audio)
       problems.push("Audio can't be sent alone — add an image or video.");
