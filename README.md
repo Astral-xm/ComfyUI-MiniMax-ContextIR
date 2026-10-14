@@ -33,7 +33,8 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
   联合 NestedTensor AV latent（参考 PT_H3ConcatAVLatent，主要用于视频的二次采样放大）。
 - **MiniMax H3 Tiled Sampler**：替代 SamplerCustomAdvanced 的分块采样器；把 AV latent
   沿 H/W 轴切条逐条采样，R2V 参考条件按条同步裁切（修复拼接重复），关键帧按区域
-  裁切，音轨完整透传，接缝带二次精修；
+  裁切，音轨完整透传，接缝带二次精修；支持 MultiDiffusion/independent 融合、
+  cosine/gaussian 融合窗口、R2V 参考透传/裁切/整图回退、全局草稿阶段和 mask 裁切；
 - **MiniMax H3 Face Ref Video**：把任意帧率的参考视频整理成 ai-toolkit
   ref2va 口径的 24fps 帧、17n+5 帧数、同步音轨与 /32 对齐的生成宽高；
 - **MiniMax H3 Sigma Refiner**：低噪细节精修器；在低 Sigma 区间局部加步，消除高速
@@ -395,6 +396,24 @@ Unified/Context IR 节点
 
 ---
 
+## 节点 10：MiniMax H3 Tiled Sampler
+
+在保持单节点结构的前提下，移植了 AVPack V2 的分块控制能力：
+
+| 参数 | 说明 |
+| --- | --- |
+| `fusion` | `multidiffusion`：全局 latent 每步融合所有 tile，需要 `sampler=euler`；`independent`：每个 tile 独立跑完整去噪（旧路径） |
+| `blend` | 融合窗口：`cosine` 或 `gaussian`（边缘权重更低） |
+| `ref_handling` | `auto`/`off`：完整参考透传给每个 tile；`crop`：按 tile 区域裁切参考；`bypass`：检测到 R2V 参考时整图单次采样 |
+| `global_draft_steps` | 前 N 步在低分辨率整图上做全局草稿，建立构图后再分块精修；0 关闭 |
+| `draft_downscale` | 草稿阶段的空间降采样倍数；1 表示不降采样 |
+| `mask_mode` | `ignore`：忽略 latent 的 5D video mask；`crop`：按 tile 裁切 mask 并参与融合 |
+
+说明：`global_draft_steps` 和 `mask_mode=crop` 目前只在 `fusion=multidiffusion`
+（Euler 同步路径）生效；`fusion=independent` 会回退到旧路径并在控制台提示。
+
+---
+
 ## Credits / License · 版权信息 / 许可
 
 This project is distributed as a whole under GNU GPL v3.0. See
@@ -420,6 +439,8 @@ This project contains or modifies code / algorithms from:
 [ptmaster / ComfyUI-PT_H3ConcatAVLatent](https://github.com/ptmaster/ComfyUI-PT_H3ConcatAVLatent) — 上游未标注许可证 / license not specified
 [T8mars / comfyui-minimax-h3-audio-T8](https://github.com/T8mars/comfyui-minimax-h3-audio-T8) — GPL-3.0-or-later
 ComfyUI-AIToolkit-MiniMaxH3 — 上游未提供许可证文件；本插件仅按其公开行为说明独立实现，不包含其源码
+ComfyUI-MiniMaxH3-AVPack — MIT，Copyright (c) 2026 yc；Tiled Sampler 的 fusion / blend /
+ref_handling / global draft / mask_mode 语义参考该项目，并按 MIT 条款署名移植
 
 Special thanks to the original author of ComfyUI-AIToolkit-MiniMaxH3 for publishing
 the reference-video preparation behaviour, and to ostris/ai-toolkit for the
