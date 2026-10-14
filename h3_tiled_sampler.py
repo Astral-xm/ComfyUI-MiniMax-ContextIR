@@ -544,7 +544,8 @@ class H3TiledSampler(io.ComfyNode):
             output = cls._refine_seams(
                 output, full_video_noise, audio_tensor, full_audio_noise,
                 starts, tile_size, tile_overlap, tile_axis, noise, guider, sampler, sigmas,
-                refine_steps, device, dtype, keyframe_contexts, debug
+                refine_steps, device, dtype, keyframe_contexts, debug,
+                refs_contexts=ref_contexts, ref_handling=ref_handling,
             )
 
         intermediate_device = comfy.model_management.intermediate_device()
@@ -579,6 +580,7 @@ class H3TiledSampler(io.ComfyNode):
         full_noise, starts, tile_size, tile_axis,
         keyframe_contexts, debug=False,
         blend="cosine", crop_refs=False,
+        keep_generated_audio=False,
     ):
         full_nested = _h3_make_nested(video_tensor, audio_tensor)
         full_shapes = [tuple(video_tensor.shape)]
@@ -728,17 +730,36 @@ class H3TiledSampler(io.ComfyNode):
         finally:
             H3TiledSampler._restore_minimax_keyframes(keyframe_contexts)
 
-        sampled_video, _sampled_audio, _ = _h3_extract(samples, debug)
+        sampled_video, sampled_audio, _ = _h3_extract(samples, debug)
         intermediate_device = comfy.model_management.intermediate_device()
         sampled_video = sampled_video.to(device=intermediate_device, dtype=video_tensor.dtype)
 
-        final_audio = audio_tensor.to(intermediate_device) if audio_tensor is not None else None
+        # AVPack：keep_generated_audio=True 且模型产出了音频时用生成音频，否则保留输入音频
+        # （sample_tiled 不传该参数 -> 默认 False -> 始终使用输入音频）。
+        audio_source = sampled_audio if (keep_generated_audio and sampled_audio is not None) else audio_tensor
+        final_audio = audio_source.to(intermediate_device) if audio_source is not None else None
         reconstructed = _h3_reconstruct(sampled_video, final_audio, fmt_info, debug)
+
+        # AVPack 去噪预览：取最后一步的 x0，经 model.process_latent_out 处理；
+        # 形状必须与 sampled_video 完全一致，否则回退为 sampled_video。
+        denoised_video = sampled_video
+        try:
+            x0_raw = x0_output.get("x0", None)
+            if x0_raw is not None:
+                _model = guider.model_patcher.model
+                x0_proc = _model.process_latent_out(x0_raw)
+                if isinstance(x0_proc, torch.Tensor) and tuple(x0_proc.shape) == tuple(sampled_video.shape):
+                    denoised_video = x0_proc.to(device=intermediate_device, dtype=video_tensor.dtype)
+        except Exception as _exc:
+            if debug:
+                print(f"  [fusion] x0 处理失败: {type(_exc).__name__}: {_exc}")
+            denoised_video = sampled_video
+        denoised_reconstructed = _h3_reconstruct(denoised_video, final_audio, fmt_info, debug)
 
         out = latent_dict.copy()
         out["samples"] = reconstructed
         out_denoised = latent_dict.copy()
-        out_denoised["samples"] = reconstructed
+        out_denoised["samples"] = denoised_reconstructed
 
         del weights, regions
         if video_tensor.device.type == "cuda":
@@ -826,10 +847,14 @@ class H3TiledSampler(io.ComfyNode):
     @staticmethod
     def _refine_seams(output, full_video_noise, audio_tensor, full_audio_noise,
                       starts, tile_size, tile_overlap, tile_axis, noise, guider, sampler, sigmas,
-                      refine_steps, device, dtype, keyframe_contexts=None, debug=False):
+                      refine_steps, device, dtype, keyframe_contexts=None, debug=False,
+                      refs_contexts=None, ref_handling="auto"):
         if refine_steps <= 0 or sigmas.shape[-1] <= 1:
             return output
 
+        crop_refs = str(ref_handling or "auto").lower() == "crop" and bool(refs_contexts)
+        target_h = int(output.shape[-2])
+        target_w = int(output.shape[-1])
         refine_sigmas = sigmas[-(refine_steps + 1):].clone()
         disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
         axis_dim = 3 if tile_axis == "H" else 4
@@ -857,6 +882,10 @@ class H3TiledSampler(io.ComfyNode):
             x0_output = {}
             callback = latent_preview.prepare_callback(guider.model_patcher, refine_sigmas.shape[-1] - 1, x0_output)
             H3TiledSampler._apply_minimax_keyframe_region(keyframe_contexts or [], tile_axis, band_start, band_end, debug)
+            if crop_refs:
+                H3TiledSampler._apply_minimax_refs_region(
+                    guider, tile_axis, band_start, band_end, target_h, target_w, debug
+                )
             H3TiledSampler._clean_minimax_layout(guider, debug)
             try:
                 band_samples = guider.sample(
@@ -866,6 +895,8 @@ class H3TiledSampler(io.ComfyNode):
                 )
             finally:
                 H3TiledSampler._restore_minimax_keyframes(keyframe_contexts or [])
+                if crop_refs:
+                    _restore_minimax_refs(refs_contexts)
 
             if hasattr(band_samples, "is_nested") and band_samples.is_nested:
                 band_samples_video = band_samples.unbind()[0]
