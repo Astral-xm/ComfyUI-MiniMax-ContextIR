@@ -120,7 +120,7 @@ pip install -r requirements.txt
 | `audio_vae` | 可选；参考视频音轨/参考音频时需要 |
 | `prompt` | 输入提示词（用 `<Picture i>` / `<Video k>` / `<Audio j>` 引用已连接媒体） |
 | `mode` | auto / t2va / fl2va / ref2va |
-| `width` / `height` | 本地画布（32 倍数，上限 1920x1088） |
+| `width` / `height` | 本地画布（32 倍数，单边上限 16384；与官方节点一致，不再额外限制 2MP 面积） |
 | `duration` | 场景时长（秒，1–30，浮点；2–15 是训练范围，15–30 未测试） |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
@@ -161,14 +161,14 @@ pip install -r requirements.txt
 - 修复参考视频无音轨时不进入文本编码器的问题
 - 官方 **Add Guide for MiniMax H3** 可直接接在 Unified 的 `positive` + `av_latent`
   后面使用，不需要本插件再复制一个同功能节点
+- 参考视频的 `adapt_canvas` 上限已对齐官方 `768×1344` 面积
+- 去掉了 Unified 之前额外的 1920×1088 生成画布硬上限
 
 保留的冲突项（未按官方结构改写）：
 
 - 官方现在用 Image to Video / Reference to Video 两个节点 + AddGuide 组合；
   本插件继续保留单节点 Unified 的 hybrid 结构，AddGuide 仍使用官方节点
 - Unified 仍保留 duration/fps 输入，默认范围已扩到 1–30 秒；raw length 只是额外入口
-- Unified 仍使用 1920×1088 的整体画布上限，不采用官方 `adapt_canvas` 的
-  `768×1344` 参考画布上限
 - 官方 Fun ControlNet、Empty AV Latent、ModelSamplingMiniMaxH3 不并入 Unified；
   这些官方节点可直接与本插件共存使用
 

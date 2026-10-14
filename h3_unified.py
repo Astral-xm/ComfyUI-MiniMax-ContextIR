@@ -39,7 +39,7 @@ from comfy_api.latest import ComfyExtension, io
 
 CANVAS_MULTIPLE = 32
 BASE_SHORT_EDGE = 768
-MAX_PIXELS = 1920 * 1088  # H3 practical canvas cap (2.0 MP)
+REF_VIDEO_MAX_PIXELS = 768 * 1344  # official adapt_canvas cap for reference videos
 REF_IMAGE_SHORT_EDGE = 2048
 FPS = 24
 AUDIO_LATENT_FPS = 40
@@ -89,8 +89,8 @@ def adapt_canvas(width: int, height: int) -> tuple[int, int]:
         nominal_width, nominal_height = BASE_SHORT_EDGE * ratio, BASE_SHORT_EDGE
     else:
         nominal_width, nominal_height = BASE_SHORT_EDGE, BASE_SHORT_EDGE / ratio
-    if nominal_width * nominal_height > MAX_PIXELS:
-        scale = math.sqrt(MAX_PIXELS / (nominal_width * nominal_height))
+    if nominal_width * nominal_height > REF_VIDEO_MAX_PIXELS:
+        scale = math.sqrt(REF_VIDEO_MAX_PIXELS / (nominal_width * nominal_height))
         nominal_width *= scale
         nominal_height *= scale
     return (
@@ -407,12 +407,6 @@ def build_unified_conditioning(
 ):
     if width % 32 or height % 32:
         raise ValueError("MiniMax H3 width and height must be divisible by 32")
-    if width * height > MAX_PIXELS:
-        raise ValueError(
-            f"Requested canvas has {width * height:,} pixels and exceeds the MiniMax H3 "
-            f"cap of {MAX_PIXELS:,} pixels (1920x1088); reduce width/height"
-        )
-
     ref_image_values = sorted_autogrow_values(ref_images)
     ref_video_entries = sorted_autogrow_items(ref_videos)
     ref_video_values = [value for _, value in ref_video_entries]
