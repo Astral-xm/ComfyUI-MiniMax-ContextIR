@@ -124,11 +124,7 @@ pip install -r requirements.txt
 | `duration` | 场景时长（秒，1–15，浮点） |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
-| `audio_mode` | native / lock_source / remix_source；后两者在节点内完成音频锁定/重绘 |
-| `audio_denoise_strength` | remix_source 的降噪强度（0–1） |
-| `drive_audio_ordinal` | 从参考视频音轨和参考音频中选第几路作为驱动音频；0 表示不自动选择 |
 | `first_frame` / `last_frame` | 关键帧 |
-| `source_audio` | 可选；专门用于 lock/remix 的源音频，连接后优先于 `drive_audio_ordinal` |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 
 ### 输出
@@ -138,7 +134,6 @@ pip install -r requirements.txt
 - `conditioned_prompt`：规范化媒体标签后的提示词
 - `media_map_json`：媒体编号与来源映射
 - `report`：本地任务、帧数、媒体数量等诊断信息
-- `mux_audio`：lock_source / remix_source 时输出原始源音频，用于最终无损封装；native 时为 None
 
 ### 注意
 
@@ -151,9 +146,7 @@ pip install -r requirements.txt
     仅末帧 → l2va，首尾帧都有 → fl2va；无任何关键帧 → 报错）。
 - `mode=ref2va` 时首尾帧与参考媒体可同时输入（内部按 hybrid 处理）；
   未接任何参考媒体 → 报错。
-- 音频锁定已内置：`audio_mode=lock_source` 会把源音频锁进 `av_latent`，只生成画面；
-  `remix_source` 按强度重绘音频。独立的 **MiniMax H3 Audio Lock** 节点仍然保留，
-  旧工作流可以继续使用。
+- 音频锁定由独立的 **MiniMax H3 Audio Lock** 节点处理（lock / unlock / remix）。
 
 ---
 
@@ -269,15 +262,16 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 | 输入 | 说明 |
 | --- | --- |
 | `av_latent` | 来自 Unified / Context IR 节点的联合 AV latent |
-| `audio` | 要锁定的源音频（通常与 `ref_audio` 接同一文件） |
-| `audio_vae` | MiniMax H3 音频 VAE |
-| `mode` | `lock`（默认）：音频保持原样，只生成画面；`remix`：按 `strength` 重绘音频 |
-| `strength` | remix 模式的去噪强度（0–1，lock 时忽略） |
+| `original_audio` | 原始音频；lock/remix 时锁进或重绘进 latent |
+| `generated_audio` | 接 VAE 解码（音频）的输出；unlock 时直接透传 |
+| `audio_vae` | MiniMax H3 音频 VAE；lock/remix 时必需 |
+| `mode` | `lock`：锁定原始音频；`unlock`：不锁定，输出解码音频；`remix`：按 `strength` 重绘原始音频 |
+| `strength` | remix 模式的去噪强度（0–1，lock/unlock 时忽略） |
 
 ### 输出
 
-- `av_latent`：替换好源音频并带音频 mask 的 latent，接 `SamplerCustomAdvanced.latent_image`
-- `audio`：原始源音频透传，用于最终合成时精确混流（VAE 编解码有损，成品建议用它）
+- `av_latent`：lock/remix 时替换好源音频并带音频 mask 的 latent；unlock 时原样透传
+- `audio`：lock/remix 输出原始音频；unlock 输出 VAE 解码的生成音频
 - `report`：锁定模式、音频 latent 长度等诊断信息
 
 ### 用法
@@ -286,11 +280,12 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 Unified/Context IR 节点
   ├─ positive ──> BasicGuider
   └─ Latent ──> MiniMax H3 Audio Lock ──> SamplerCustomAdvanced.latent_image
-                  (audio 接 LoadAudio，audio_vae 接同一个音频 VAE)
+                  (original_audio 接 LoadAudio；generated_audio 接 VAE 解码音频)
 保存视频时用 Audio Lock 的 audio 输出，而不是解码 latent 里的生成音频。
 ```
 
 `lock` 模式下视频会尽量与源音频口型/节拍同步，音频 100% 保持为源音频；
+`unlock` 模式不修改 latent，直接把 VAE 解码出的生成音频送到输出；
 `remix` 模式适合“保留节奏与语义、但想换音色”的场景。
 
 ---

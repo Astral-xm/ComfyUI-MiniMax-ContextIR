@@ -36,8 +36,6 @@ import comfy.nested_tensor
 import comfy.utils
 from comfy_api.latest import ComfyExtension, io
 
-from .h3_audio_lock import lock_audio as apply_audio_lock
-
 
 CANVAS_MULTIPLE = 32
 BASE_SHORT_EDGE = 768
@@ -176,25 +174,6 @@ def sorted_autogrow_items(values) -> list[tuple[int, object]]:
 
 def sorted_autogrow_values(values) -> list:
     return [value for _, value in sorted_autogrow_items(values)]
-
-
-def ordered_drive_audios(ref_video_audios, ref_audios) -> list:
-    """Reference-video soundtracks in ordinal order, then standalone audios."""
-    by_ordinal = dict(sorted_autogrow_items(ref_video_audios))
-    ordered = [by_ordinal[ordinal] for ordinal in sorted(by_ordinal)]
-    ordered.extend(sorted_autogrow_values(ref_audios))
-    return ordered
-
-
-def select_drive_audio(source_audio, ref_video_audios, ref_audios, ordinal: int):
-    """Pick the audio that drives lock/remix, or None when unavailable."""
-    if source_audio is not None:
-        return source_audio
-    if not ordinal or ordinal <= 0:
-        return None
-    candidates = ordered_drive_audios(ref_video_audios, ref_audios)
-    index = int(ordinal) - 1
-    return candidates[index] if 0 <= index < len(candidates) else None
 
 
 def _resize_reference_image(image, width: int, height: int, ref_image_size: str):
@@ -633,17 +612,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                              tooltip="Frame rate used to convert duration to frames."),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
                                tooltip="'match' scales each reference image (down only, aspect-preserving) to the generation pixel area; 'max' uses a 2048px short edge for best identity fidelity but is slower."),
-                io.Combo.Input("audio_mode", options=["native", "lock_source", "remix_source"],
-                               default="native",
-                               tooltip="native: 正常生成音频。lock_source: 把源音频锁进 AV latent，成片音频与源完全一致，只生成画面。remix_source: 保留源音频结构，按 audio_denoise_strength 重新生成。"),
-                io.Float.Input("audio_denoise_strength", default=0.35, min=0.0, max=1.0, step=0.01,
-                               tooltip="remix_source 的降噪强度；lock_source 忽略该值。"),
-                io.Int.Input("drive_audio_ordinal", default=1, min=0, max=6, step=1,
-                             tooltip="audio_mode 非 native 时，从已连接的参考视频音轨和参考音频中取第几路作为源音频；0 表示不自动选择（可用 source_audio 单独指定）。"),
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
-                io.Audio.Input("source_audio", optional=True,
-                               tooltip="可选：专门用于 lock/remix 的源音频；连接后优先于 drive_audio_ordinal。"),
                 io.Autogrow.Input("ref_images", optional=True,
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Image.Input("ref_image", tooltip="Reference image (downscaled to 2048 short edge if larger, never upscaled)"),
@@ -667,16 +637,13 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 io.String.Output(display_name="conditioned_prompt"),
                 io.String.Output(display_name="media_map_json"),
                 io.String.Output(display_name="report"),
-                io.Audio.Output(display_name="mux_audio",
-                                tooltip="lock/remix 时输出原始源音频，用于最终无损封装；native 时为 None。"),
             ],
         )
 
     @classmethod
     def execute(cls, clip, video_vae, audio_vae=None, prompt="", width=1344, height=768,
                 duration=5.0, fps=24, mode="auto", ref_image_size="match",
-                audio_mode="native", audio_denoise_strength=0.35, drive_audio_ordinal=1,
-                first_frame=None, last_frame=None, source_audio=None,
+                first_frame=None, last_frame=None,
                 ref_images=None, ref_videos=None, ref_video_audios=None,
                 ref_audios=None) -> io.NodeOutput:
         if not 1 <= float(duration) <= 15:
@@ -685,7 +652,7 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
             raise ValueError("FPS must be between 1 and 60.")
         length = duration_to_length(float(duration), int(fps))
         task_type = mode or "auto"
-        conditioning, av_latent, conditioned_prompt, media_map, report = build_unified_conditioning(
+        return io.NodeOutput(*build_unified_conditioning(
             clip,
             video_vae,
             audio_vae,
@@ -701,35 +668,7 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
             ref_videos=ref_videos,
             ref_video_audios=ref_video_audios,
             ref_audios=ref_audios,
-        )
-
-        audio_mode_key = (audio_mode or "native").lower()
-        if audio_mode_key not in {"native", "lock_source", "remix_source"}:
-            raise ValueError(
-                f"audio_mode must be native/lock_source/remix_source, got {audio_mode!r}"
-            )
-        report = f"{report}\naudio_mode={audio_mode_key}"
-        mux_audio = None
-        if audio_mode_key != "native":
-            if audio_vae is None:
-                raise ValueError(
-                    f"audio_vae is required when audio_mode={audio_mode_key}"
-                )
-            source = select_drive_audio(
-                source_audio, ref_video_audios, ref_audios, drive_audio_ordinal)
-            if source is None:
-                raise ValueError(
-                    f"audio_mode={audio_mode_key} requires source_audio or a connected "
-                    "reference audio at drive_audio_ordinal"
-                )
-            lock_mode = "lock" if audio_mode_key == "lock_source" else "remix"
-            av_latent, mux_audio, lock_report = apply_audio_lock(
-                av_latent, source, audio_vae,
-                mode=lock_mode, strength=audio_denoise_strength)
-            report = f"{report}\n{lock_report}"
-
-        return io.NodeOutput(
-            conditioning, av_latent, conditioned_prompt, media_map, report, mux_audio)
+        ))
 
 
 class MiniMaxH3UnifiedExtension(ComfyExtension):
