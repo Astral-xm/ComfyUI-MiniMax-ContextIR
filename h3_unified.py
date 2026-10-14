@@ -452,11 +452,15 @@ def build_unified_conditioning(
     keyframe_images = []
     picture_labels: list[str] = []
     if use_first and first_frame is not None:
+        if video_vae is None:
+            raise ValueError("video_vae is required when first_frame/last_frame are connected")
         image = resize_image(first_frame[:1], width, height, "disabled")
         keyframe_images.append(image)
         picture_labels.append("first_frame (exact frame 0)")
         keyframes.append({"resolved_frame_index": 0, "latent": video_vae.encode(image)})
     if use_last and last_frame is not None:
+        if video_vae is None:
+            raise ValueError("video_vae is required when first_frame/last_frame are connected")
         image = resize_image(last_frame[:1], width, height, "center")
         keyframe_images.append(image)
         picture_labels.append(f"last_frame (exact frame {frame_count - 1})")
@@ -470,16 +474,17 @@ def build_unified_conditioning(
     if use_refs:
         for index, image in enumerate(ref_image_values, 1):
             resized, ref_width, ref_height = _resize_reference_image(image, width, height, ref_image_size)
-            encoded = video_vae.encode(resized)
             real_ref_items.append({"type": "image", "data": resized})
-            real_ref_blocks.append(
-                {
-                    "kind": "image",
-                    "latent_h": ref_height // 16,
-                    "latent_w": ref_width // 16,
-                    "latent": encoded,
-                }
-            )
+            if video_vae is not None:
+                encoded = video_vae.encode(resized)
+                real_ref_blocks.append(
+                    {
+                        "kind": "image",
+                        "latent_h": ref_height // 16,
+                        "latent_w": ref_width // 16,
+                        "latent": encoded,
+                    }
+                )
             picture_labels.append(f"ref_image_{index}")
 
         for index, (video_ordinal, frames) in enumerate(ref_video_entries, 1):
@@ -496,44 +501,49 @@ def build_unified_conditioning(
             if aligned_count < 5:
                 raise ValueError(f"ref_video_{index} is too short after 17n+5 alignment")
             frames = frames[:aligned_count]
-            encoded_video = video_vae.encode(frames)
 
             soundtrack = ref_video_audio_by_ordinal.get(video_ordinal)
+            encoded_video = None
             encoded_soundtrack, soundtrack_t = None, 0
+            if video_vae is not None:
+                encoded_video = video_vae.encode(frames)
+                if soundtrack is not None and audio_vae is not None:
+                    encoded_soundtrack, soundtrack_t = _encode_reference_audio(audio_vae, soundtrack)
+
+            # Official presentation order: each video's audio label comes first,
+            # then the video, then standalone audios.
             if soundtrack is not None:
-                if audio_vae is None:
-                    raise ValueError("audio_vae is required when reference videos have soundtracks")
-                encoded_soundtrack, soundtrack_t = _encode_reference_audio(audio_vae, soundtrack)
-                # soundtrack gets its own <Audio j> label, emitted after <Video k>
-                sample_indices = list(range(0, frames.shape[0], FPS // 2))
-                real_ref_items.append(
-                    {
-                    "type": "video",
-                    "data": frames[sample_indices],
-                        "timestamps": [sample_index / FPS for sample_index in sample_indices],
-                    }
-                )
                 real_ref_items.append({"type": "audio"})
                 audio_labels.append(f"ref_video_audio_{video_ordinal}")
-            real_ref_blocks.append(
+            sample_indices = list(range(0, frames.shape[0], FPS // 2))
+            real_ref_items.append(
                 {
-                    "kind": "video_audio" if soundtrack_t else "video",
-                    "latent_t": int(encoded_video.shape[2]),
-                    "latent_h": canvas_height // 16,
-                    "latent_w": canvas_width // 16,
-                    "ref_audio_t": soundtrack_t,
-                    "latent": encoded_video,
-                    "audio_latent": encoded_soundtrack,
+                    "type": "video",
+                    "data": frames[sample_indices],
+                    "timestamps": [sample_index / FPS for sample_index in sample_indices],
                 }
             )
+            if video_vae is not None:
+                real_ref_blocks.append(
+                    {
+                        "kind": "video_audio" if soundtrack_t else "video",
+                        "latent_t": int(encoded_video.shape[2]),
+                        "latent_h": canvas_height // 16,
+                        "latent_w": canvas_width // 16,
+                        "ref_audio_t": soundtrack_t,
+                        "latent": encoded_video,
+                        "audio_latent": encoded_soundtrack,
+                    }
+                )
             video_labels.append(f"ref_video_{video_ordinal}")
 
         for index, audio in enumerate(ref_audio_values, 1):
-            if audio_vae is None:
-                raise ValueError("audio_vae is required when reference audio is connected")
-            encoded_audio, audio_t = _encode_reference_audio(audio_vae, audio)
             real_ref_items.append({"type": "audio"})
-            real_ref_blocks.append({"kind": "audio", "ref_audio_t": audio_t, "audio_latent": encoded_audio})
+            if audio_vae is not None:
+                encoded_audio, audio_t = _encode_reference_audio(audio_vae, audio)
+                real_ref_blocks.append(
+                    {"kind": "audio", "ref_audio_t": audio_t, "audio_latent": encoded_audio}
+                )
             audio_labels.append(f"ref_audio_{index}")
 
     counts = {
@@ -557,9 +567,16 @@ def build_unified_conditioning(
     elif real_ref_blocks:
         refs = real_ref_blocks
         tokens = clip.tokenize(conditioned_prompt, minimax_ref_items=real_ref_items)
-    else:
+    elif keyframes:
         refs = []
         tokens = clip.tokenize(conditioned_prompt, images=keyframe_images)
+    elif real_ref_items:
+        # No VAE connected: references still reach the text encoder.
+        refs = []
+        tokens = clip.tokenize(conditioned_prompt, minimax_ref_items=real_ref_items)
+    else:
+        refs = []
+        tokens = clip.tokenize(conditioned_prompt)
 
     conditioning = clip.encode_from_tokens_scheduled(tokens)
     values = {}
@@ -599,7 +616,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
             category="model/conditioning/minimax/unified",
             inputs=[
                 io.Clip.Input("clip", tooltip="Native MiniMax H3 Qwen3-VL CLIP."),
-                io.Vae.Input("video_vae", tooltip="MiniMax H3 video VAE."),
+                io.Vae.Input("video_vae", optional=True,
+                             tooltip="MiniMax H3 video VAE. Optional for text-only reference conditioning; required for keyframes and DiT reference blocks."),
                 io.Vae.Input("audio_vae", optional=True, tooltip="Required only for reference audio / video soundtracks."),
                 io.String.Input("prompt", multiline=True, dynamic_prompts=True),
                 io.Combo.Input("mode", options=["auto", "t2va", "fl2va", "ref2va"], default="auto",
@@ -612,6 +630,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                              tooltip="Frame rate used to convert duration to frames."),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
                                tooltip="'match' scales each reference image (down only, aspect-preserving) to the generation pixel area; 'max' uses a 2048px short edge for best identity fidelity but is slower."),
+                io.Int.Input("length_override", default=0, min=0, max=3600, step=1,
+                             tooltip="0 uses duration/fps. >0 uses this raw 24fps frame count instead, snapped up to the official 17n+5 grid."),
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
                 io.Autogrow.Input("ref_images", optional=True,
@@ -643,14 +663,19 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
     @classmethod
     def execute(cls, clip, video_vae, audio_vae=None, prompt="", width=1344, height=768,
                 duration=5.0, fps=24, mode="auto", ref_image_size="match",
+                length_override=0,
                 first_frame=None, last_frame=None,
                 ref_images=None, ref_videos=None, ref_video_audios=None,
                 ref_audios=None) -> io.NodeOutput:
-        if not 1 <= float(duration) <= 15:
-            raise ValueError("Duration must be between 1 and 15 seconds.")
-        if not 1 <= int(fps) <= 60:
-            raise ValueError("FPS must be between 1 and 60.")
-        length = duration_to_length(float(duration), int(fps))
+        override = int(length_override or 0)
+        if override > 0:
+            length = align_frame_count(override)
+        else:
+            if not 1 <= float(duration) <= 15:
+                raise ValueError("Duration must be between 1 and 15 seconds.")
+            if not 1 <= int(fps) <= 60:
+                raise ValueError("FPS must be between 1 and 60.")
+            length = duration_to_length(float(duration), int(fps))
         task_type = mode or "auto"
         return io.NodeOutput(*build_unified_conditioning(
             clip,

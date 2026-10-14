@@ -116,7 +116,7 @@ pip install -r requirements.txt
 | 输入 | 说明 |
 | --- | --- |
 | `clip` | MiniMax H3 Qwen3-VL CLIP |
-| `video_vae` | MiniMax H3 视频 VAE |
+| `video_vae` | 可选；关键帧和 DiT 参考块需要。不接时参考媒体仍会进入文本编码器 |
 | `audio_vae` | 可选；参考视频音轨/参考音频时需要 |
 | `prompt` | 输入提示词（用 `<Picture i>` / `<Video k>` / `<Audio j>` 引用已连接媒体） |
 | `mode` | auto / t2va / fl2va / ref2va |
@@ -124,6 +124,7 @@ pip install -r requirements.txt
 | `duration` | 场景时长（秒，1–15，浮点） |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
+| `length_override` | 0 = 使用 duration/fps；>0 = 直接使用官方 raw 帧数并向上吸附到 17n+5 |
 | `first_frame` / `last_frame` | 关键帧 |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 
@@ -147,6 +148,29 @@ pip install -r requirements.txt
 - `mode=ref2va` 时首尾帧与参考媒体可同时输入（内部按 hybrid 处理）；
   未接任何参考媒体 → 报错。
 - 音频锁定由独立的 **MiniMax H3 Audio Lock** 节点处理（lock / unlock / remix）。
+- 参考媒体在没有 `video_vae` / `audio_vae` 时仍会作为文本编码器条件；
+  参考视频的音轨在 token 呈现顺序中按官方规则排在视频前面。
+
+### 官方更新合并情况
+
+已合并的非冲突更新：
+
+- `length_override`：支持官方 raw 帧数（5–3600，自动吸附 17n+5）
+- `video_vae` / `audio_vae` 可选：支持无 VAE 的纯文本参考条件
+- 参考视频音轨按官方顺序 `audio → video` 进入文本编码器
+- 修复参考视频无音轨时不进入文本编码器的问题
+- 新增伴随节点 **MiniMax H3 Add Guide (ContextIR)**：任意帧锚点、多帧 guide clip、
+  音频 guide、可串联
+
+保留的冲突项（未按官方结构改写）：
+
+- 官方现在用 Image to Video / Reference to Video 两个节点 + AddGuide 组合；
+  本插件继续保留单节点 Unified 的 hybrid 结构，AddGuide 作为伴随节点
+- Unified 仍保留 duration/fps 输入和 1–15 秒默认范围；raw length 只是额外入口
+- Unified 仍使用 1920×1088 的整体画布上限，不采用官方 `adapt_canvas` 的
+  `768×1344` 参考画布上限
+- 官方 Fun ControlNet、Empty AV Latent、ModelSamplingMiniMaxH3 不并入 Unified；
+  这些官方节点可直接与本插件共存使用
 
 ---
 
@@ -406,6 +430,21 @@ Unified/Context IR 节点
 
 说明：`global_draft_steps` 和 `mask_mode=crop` 目前只在 `fusion=multidiffusion`
 （Euler 同步路径）生效；`fusion=independent` 会回退到旧路径并在控制台提示。
+
+---
+
+## 节点 11：MiniMax H3 Add Guide (ContextIR)
+
+移植官方 `Add Guide for MiniMax H3` 的行为，可与 Unified / 官方条件节点串联：
+
+- `positive` + `latent`：来自 Unified 或官方 Image/Reference to Video
+- `image`：单图或多帧 clip；多帧会裁到 5、22、39…（17n+5）帧
+- `audio`：在同一起始帧锚定音频，并裁到剩余时长
+- `frame_idx`：锚定帧；负数表示从末尾倒数
+- `vae` / `audio_vae`：连接 image / audio 时对应需要
+
+可以连续串联多个 AddGuide，在一条视频里锚定多个位置。节点 id 为
+`MiniMaxH3ContextIRAddGuide`，可与官方节点共存。
 
 ---
 

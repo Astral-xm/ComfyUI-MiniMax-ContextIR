@@ -16,8 +16,11 @@ Third-party components / 第三方组件
    License: GPL-3.0
    The plugin uses ComfyUI's extension APIs, and h3_unified.py fuses
    ComfyUI's official MiniMaxH3ImageToVideo / MiniMaxH3ReferenceToVideo nodes.
+   h3_add_guide.py ports the behaviour of ComfyUI's official
+   MiniMaxH3AddGuide node under a distinct node id.
    本插件使用 ComfyUI 扩展 API；h3_unified.py 融合了 ComfyUI 官方
    MiniMaxH3ImageToVideo / MiniMaxH3ReferenceToVideo 节点。
+   h3_add_guide.py 以不同的节点 id 移植了官方 MiniMaxH3AddGuide 节点行为。
 
 2. MiniMax H3 & official skills
    https://github.com/MiniMax-AI/MiniMax-H3
