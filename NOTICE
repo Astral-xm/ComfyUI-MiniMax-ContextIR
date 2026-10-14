@@ -64,11 +64,11 @@ Third-party components / 第三方组件
    plugin. The MIT license of the original applies to the ported code.
    MiniMax H3 Tiled Sampler 节点由该项目复刻并转换为本插件的 V3 io API
    （h3_tiled_sampler.py），原实现遵循 MIT 许可证。
-   The fusion / blend / ref_handling / global-draft / mask_mode semantics
-   were subsequently ported from the MIT-licensed AVPack v2 distribution
+   The fusion / blend / ref_handling semantics were subsequently ported
+   from the MIT-licensed AVPack main Tiled Sampler distribution
    (ComfyUI-MiniMaxH3-AVPack, Copyright (c) 2026 yc).
-   Tiled Sampler 的 fusion / blend / ref_handling / 全局草稿 / mask_mode
-   语义随后从 MIT 许可的 AVPack v2 发行版移植。
+   Tiled Sampler 的 fusion / blend / ref_handling 语义随后从 MIT 许可的
+   AVPack 主 Tiled Sampler 发行版移植。
    完整 MIT 文本见 LICENSES/MIT.txt。
 
 7. ComfyUI-Prompt-Assistant

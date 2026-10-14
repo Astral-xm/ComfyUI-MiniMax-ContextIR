@@ -224,19 +224,6 @@ def _make_window_1d(length, ov_left, ov_right, dtype, device, blend="cosine"):
     return w
 
 
-def _draft_geometry(video_shape, draft_steps: int, draft_downscale: int) -> tuple[int, int]:
-    """Global draft canvas: spatially floor-divided, even-aligned, with a floor."""
-    if draft_steps <= 0:
-        return 0, 0
-    height, width = int(video_shape[-2]), int(video_shape[-1])
-    downscale = max(1, int(draft_downscale))
-    if downscale <= 1:
-        return height, width
-    draft_h = max(8, (height // downscale) // 2 * 2)
-    draft_w = max(10, (width // downscale) // 2 * 2)
-    return min(height, draft_h), min(width, draft_w)
-
-
 def _has_minimax_refs(guider) -> bool:
     if not hasattr(guider, "original_conds"):
         return False
@@ -261,43 +248,6 @@ def _snapshot_minimax_refs(guider) -> list[tuple[dict, object]]:
 def _restore_minimax_refs(contexts) -> None:
     for cond, refs in contexts:
         cond["minimax_refs"] = refs
-
-
-def _extract_video_denoise_mask(latent: dict, video: torch.Tensor):
-    masks = latent.get("noise_mask") if isinstance(latent, dict) else None
-    if masks is None:
-        return None
-    if getattr(masks, "is_nested", False):
-        parts = tuple(masks.unbind())
-        if len(parts) == 2:
-            masks = parts[0]
-    if not torch.is_tensor(masks) or masks.ndim != 5:
-        return None
-    return masks.to(device=video.device, dtype=torch.float32)
-
-
-def _resample_video_denoise_mask(mask: torch.Tensor, frames: int,
-                                 height: int, width: int) -> torch.Tensor:
-    if tuple(mask.shape[-3:]) != (frames, height, width):
-        mask = F.interpolate(mask, size=(frames, height, width), mode="nearest")
-    return mask
-
-
-def _crop_video_denoise_mask(mask: torch.Tensor, tile_axis: str,
-                             start: int, end: int) -> torch.Tensor:
-    if tile_axis == "H":
-        return mask[..., start:end, :]
-    return mask[..., :, start:end]
-
-
-def _blend_with_mask(predicted: torch.Tensor, original: torch.Tensor,
-                     mask: torch.Tensor | None) -> torch.Tensor:
-    if mask is None:
-        return predicted
-    mask = _resample_video_denoise_mask(
-        mask, predicted.shape[-3], predicted.shape[-2], predicted.shape[-1])
-    mask = mask.to(device=predicted.device, dtype=predicted.dtype)
-    return predicted * mask + original * (1.0 - mask)
 
 
 def _crop_minimax_refs_in_extra_args(extra_args, tile_axis, ax_start, ax_end):
@@ -376,13 +326,6 @@ class H3TiledSampler(io.ComfyNode):
                 io.Combo.Input("ref_handling", options=["auto", "crop", "bypass", "off"],
                                default="auto",
                                tooltip="R2V 参考处理：auto/off 完整透传给每个 tile；crop 按 tile 区域裁切；bypass 检测到参考就整图单次采样。"),
-                io.Int.Input("global_draft_steps", default=8, min=0, max=64, step=1,
-                             tooltip="全局草稿步数：前 N 步在低分辨率整图上跑，建立全局构图后再分块精修；0 关闭。"),
-                io.Int.Input("draft_downscale", default=2, min=1, max=4, step=1,
-                             tooltip="草稿阶段的空间降采样倍数；1 表示不降采样。"),
-                io.Combo.Input("mask_mode", options=["ignore", "crop"],
-                               default="ignore",
-                               tooltip="latent 自带 5D noise_mask 时：ignore 忽略；crop 按 tile 裁切 mask 并参与融合（multidiffusion 路径）。"),
             ],
             outputs=[
                 io.Latent.Output(display_name="分块采样结果"),
@@ -396,8 +339,7 @@ class H3TiledSampler(io.ComfyNode):
                 max_size_for_no_tile=24, target_frames=17,
                 frame_padding_mode="replicate_last",
                 refine_seams=True, refine_steps=8, debug=False,
-                fusion="multidiffusion", blend="cosine", ref_handling="auto",
-                global_draft_steps=8, draft_downscale=2, mask_mode="ignore"):
+                fusion="multidiffusion", blend="cosine", ref_handling="auto"):
 
         latent = latent_image.copy()
         raw_samples = latent["samples"]
@@ -424,9 +366,6 @@ class H3TiledSampler(io.ComfyNode):
             ref_handling = "auto"
         if ref_handling not in {"auto", "crop", "bypass"}:
             raise ValueError(f"ref_handling must be auto/crop/bypass/off, got {ref_handling!r}")
-        mask_mode = str(mask_mode or "ignore").lower()
-        if mask_mode not in {"ignore", "crop"}:
-            raise ValueError(f"mask_mode must be ignore/crop, got {mask_mode!r}")
 
         if bypass_tiling:
             return io.NodeOutput(*cls._single_pass(noise, guider, sampler, sigmas, latent, video_tensor, audio_tensor, fmt_info, debug))
@@ -470,10 +409,6 @@ class H3TiledSampler(io.ComfyNode):
             full_video_noise = full_noise
             full_audio_noise = None
 
-        video_denoise_mask = _extract_video_denoise_mask(latent, video_tensor)
-        if mask_mode == "ignore":
-            video_denoise_mask = None
-
         if fusion == "multidiffusion":
             if cls._can_use_synchronized_euler(sampler, keyframe_contexts):
                 if debug:
@@ -484,17 +419,9 @@ class H3TiledSampler(io.ComfyNode):
                     full_noise, starts, tile_size, tile_axis,
                     keyframe_contexts, debug,
                     blend=blend, crop_refs=(ref_handling == "crop"),
-                    draft_steps=int(global_draft_steps),
-                    draft_downscale=int(draft_downscale),
-                    video_denoise_mask=video_denoise_mask,
                 ))
             if debug:
                 print("  · [fusion=multidiffusion] sampler 不是 euler，回退 independent")
-        if int(global_draft_steps) > 0:
-            print("  · [global_draft_steps] independent 模式下不启用全局草稿")
-        if video_denoise_mask is not None:
-            print("  · [mask_mode=crop] independent 模式下暂不支持裁切 mask，已忽略")
-            video_denoise_mask = None
 
         ref_contexts = _snapshot_minimax_refs(guider)
 
@@ -570,14 +497,11 @@ class H3TiledSampler(io.ComfyNode):
         del weights
 
         if refine_seams and len(starts) > 1:
-            if video_denoise_mask is not None:
-                print("  · [mask_mode=crop] 接缝精修与 mask 裁切同时启用，已跳过 refine_seams")
-            else:
-                output = cls._refine_seams(
-                    output, full_video_noise, audio_tensor, full_audio_noise,
-                    starts, tile_size, tile_overlap, tile_axis, noise, guider, sampler, sigmas,
-                    refine_steps, device, dtype, keyframe_contexts, debug
-                )
+            output = cls._refine_seams(
+                output, full_video_noise, audio_tensor, full_audio_noise,
+                starts, tile_size, tile_overlap, tile_axis, noise, guider, sampler, sigmas,
+                refine_steps, device, dtype, keyframe_contexts, debug
+            )
 
         intermediate_device = comfy.model_management.intermediate_device()
         output = output.to(dtype=dtype, device=intermediate_device)
@@ -607,8 +531,6 @@ class H3TiledSampler(io.ComfyNode):
         full_noise, starts, tile_size, tile_axis,
         keyframe_contexts, debug=False,
         blend="cosine", crop_refs=False,
-        draft_steps=0, draft_downscale=1,
-        video_denoise_mask=None,
     ):
         full_nested = _h3_make_nested(video_tensor, audio_tensor)
         full_shapes = [tuple(video_tensor.shape)]
@@ -675,15 +597,6 @@ class H3TiledSampler(io.ComfyNode):
                             shape_cond.cond = tile_shapes
 
             try:
-                n_draft = min(max(0, int(draft_steps)), len(step_sigmas) - 1)
-                draft_h = draft_w = 0
-                if n_draft > 0:
-                    draft_h, draft_w = _draft_geometry(
-                        video_tensor.shape, n_draft, int(draft_downscale))
-                    if draft_h <= 0 or draft_w <= 0:
-                        n_draft = 0
-                current_shapes = list(full_shapes)
-
                 for step_idx in model_trange(len(step_sigmas) - 1, disable=disable):
                     gamma = 0.0
                     if s_churn > 0 and s_tmin <= step_sigmas[step_idx] <= s_tmax:
@@ -692,69 +605,6 @@ class H3TiledSampler(io.ComfyNode):
                     if gamma > 0:
                         eps = torch.randn_like(x) * s_noise
                         x = x + eps * (sigma_hat ** 2 - step_sigmas[step_idx] ** 2) ** 0.5
-                    s_in = x.new_ones([x.shape[0]])
-
-                    if step_idx < n_draft:
-                        # Global draft: run the whole frame at a smaller spatial
-                        # resolution first, then upscale back before tiling.
-                        if step_idx == 0:
-                            streams = comfy.utils.unpack_latents(x, full_shapes)
-                            video_x = streams[0]
-                            audio_x = streams[1] if len(streams) > 1 else None
-                            video_lo = F.interpolate(
-                                video_x,
-                                size=(video_x.shape[-3], draft_h, draft_w),
-                                mode="trilinear",
-                                align_corners=False,
-                            )
-                            lo_streams = [video_lo]
-                            if audio_x is not None:
-                                lo_streams.append(audio_x)
-                            x, _ = comfy.utils.pack_latents(lo_streams)
-                            current_shapes = [tuple(stream.shape) for stream in lo_streams]
-                            H3TiledSampler._apply_minimax_keyframe_draft(
-                                keyframe_contexts, draft_h, draft_w, debug)
-                            H3TiledSampler._clean_minimax_layout(guider, debug)
-                            if video_denoise_mask is not None:
-                                video_denoise_mask = _resample_video_denoise_mask(
-                                    video_denoise_mask, video_x.shape[-3], draft_h, draft_w)
-
-                        streams = comfy.utils.unpack_latents(x, current_shapes)
-                        video_x = streams[0]
-                        audio_x = streams[1] if len(streams) > 1 else None
-                        set_tile_shapes(current_shapes)
-                        draft_pred = model(x, sigma_hat * s_in, **extra_args)
-                        pred_streams = comfy.utils.unpack_latents(draft_pred, current_shapes)
-                        pred_video = pred_streams[0].float()
-                        if video_denoise_mask is not None:
-                            pred_video = _blend_with_mask(pred_video, video_x, video_denoise_mask)
-                        denoised_streams = [pred_video]
-                        if audio_x is not None:
-                            denoised_streams.append(pred_streams[1].float())
-                        denoised, _ = comfy.utils.pack_latents(
-                            [stream.to(dtype=(video_x.dtype if index == 0 else audio_x.dtype))
-                             for index, stream in enumerate(denoised_streams)])
-                        d = to_d(x, sigma_hat, denoised)
-                        x = x + d * (step_sigmas[step_idx + 1] - sigma_hat)
-
-                        if step_idx == n_draft - 1:
-                            streams = comfy.utils.unpack_latents(x, current_shapes)
-                            video_x = streams[0]
-                            audio_x = streams[1] if len(streams) > 1 else None
-                            video_full = F.interpolate(
-                                video_x,
-                                size=(video_x.shape[-3], video_tensor.shape[-2], video_tensor.shape[-1]),
-                                mode="trilinear",
-                                align_corners=False,
-                            )
-                            full_streams = [video_full]
-                            if audio_x is not None:
-                                full_streams.append(audio_x)
-                            x, _ = comfy.utils.pack_latents(full_streams)
-                            current_shapes = list(full_shapes)
-                            H3TiledSampler._restore_minimax_keyframes(keyframe_contexts)
-                            H3TiledSampler._clean_minimax_layout(guider, debug)
-                        continue
 
                     streams = comfy.utils.unpack_latents(x, full_shapes)
                     video_x = streams[0]
@@ -783,10 +633,6 @@ class H3TiledSampler(io.ComfyNode):
                         tile_pred = model(tile_x, sigma_hat * s_in, **tile_extra_args)
                         pred_streams = comfy.utils.unpack_latents(tile_pred, tile_shapes)
                         pred_video = pred_streams[0].float()
-                        if video_denoise_mask is not None:
-                            tile_mask = _crop_video_denoise_mask(
-                                video_denoise_mask, tile_axis, ax_start, ax_end)
-                            pred_video = _blend_with_mask(pred_video, video_tile, tile_mask)
 
                         if tile_axis == "H":
                             video_denoised[:, :, :, ax_start:ax_end, :] += pred_video * window
@@ -941,27 +787,6 @@ class H3TiledSampler(io.ComfyNode):
                 item["latent"] = region
                 tiled.append(item)
             ctx["cond"]["minimax_keyframes"] = tiled
-
-    @staticmethod
-    def _apply_minimax_keyframe_draft(contexts, draft_h, draft_w, debug=False):
-        """Scale keyframes to the global draft canvas for early steps."""
-        for ctx in contexts:
-            if ctx.get("disable_hard_injection"):
-                ctx["cond"].pop("minimax_keyframes", None)
-                continue
-            scaled = []
-            for kf in ctx["prepared"]:
-                item = kf.copy()
-                latent = item["latent"]
-                if tuple(latent.shape[-2:]) != (draft_h, draft_w):
-                    item["latent"] = F.interpolate(
-                        latent,
-                        size=(latent.shape[-3], draft_h, draft_w),
-                        mode="trilinear",
-                        align_corners=False,
-                    )
-                scaled.append(item)
-            ctx["cond"]["minimax_keyframes"] = scaled
 
     @staticmethod
     def _restore_minimax_keyframes(contexts):
