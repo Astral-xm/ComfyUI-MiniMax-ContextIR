@@ -6,7 +6,7 @@ Features:
 - H3 media input ports (first/last frame, reference images/videos/audio)
 - click a connected media chip or type @-mention in the message window to reference media,
   e.g. @ref_image_0 / @ref_video_0 / @ref_audio_0
-- duration (1-15 s) is injected into the system prompt so shots, actions and
+- duration (1-30 s) is injected into the system prompt so shots, actions and
   timestamps stay within the target video length
 - prompt_only toggle: assemble the prompt text without calling the API
 - outputs reply text and the assembled prompt text
@@ -241,7 +241,7 @@ def _mode_instruction(prompt_mode: str, media_summary: str) -> str:
 def _duration_instruction(duration: float) -> str:
     seconds = f"{duration:g}"
     return (
-        f"目标视频时长：{seconds} 秒（允许范围 1–15 秒）。\n"
+            f"目标视频时长：{seconds} 秒（允许范围 1–30 秒；2–15 秒为训练范围）。\n"
         "所有分镜、动作、台词、音效与音乐切点的时间戳必须落在该时长内；"
         "时长越短动作越简洁（1–2 秒只安排一个主要动作或单一镜头），"
         "时长越长可容纳更多分镜与复杂编排。时间戳（如 At 00:02.500）不得超过该时长。"
@@ -403,8 +403,8 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
                                  tooltip="On the first skill load, inject all local reference files into the system prompt so the remote API can read them."),
                 io.Combo.Input("prompt_mode", options=PROMPT_MODES, default="auto",
                                tooltip="auto lets the LLM decide the H3 prompt type from connected ports and the request; explicit modes are validated against the connected ports."),
-                io.Float.Input("duration", default=5.0, min=1, max=15, step=0.01,
-                               tooltip="Target video length in seconds (1-15); injected into the system prompt so shots, actions and timestamps stay within the duration."),
+        io.Float.Input("duration", default=5.0, min=1, max=30, step=0.01,
+                       tooltip="Target video length in seconds (1-30; 2-15 is the trained range). Injected into the system prompt so shots, actions and timestamps stay within the duration."),
                 io.String.Input("api_base", default="",
                                 tooltip="OpenAI-compatible API base URL."),
                 io.String.Input("api_key", default="", tooltip="API key for the external LLM."),
@@ -485,8 +485,8 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
         del conversations
         del request_id
         duration = float(duration)
-        if not (1 <= duration <= 15):
-            raise ValueError("Duration must be between 1 and 15 seconds.")
+        if not (1 <= duration <= 30):
+            raise ValueError("Duration must be between 1 and 30 seconds.")
         seed_value = int(seed) if int(seed) >= 0 else None
         # dialog text first; fall back to the connected string port
         user_text = (prompt or "").strip() or (user_prompt or "").strip()

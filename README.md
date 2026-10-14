@@ -239,6 +239,7 @@ pip install -r requirements.txt
 | `chat_history` / `request_id` | 由前端聊天窗口自动维护 |
 | `skill` | auto 或具体 Skill |
 | `prompt_mode` | 提示词生成模式：auto / T2VA / I2VA / FL2VA / L2VA / REF2VA；auto 时由模型根据已连接端口和需求自动判断；显式模式会屏蔽不属于该模式的媒体输入：T2VA 忽略全部媒体；I2VA / L2VA / FL2VA 忽略参考媒体（缺必需关键帧时报错）；REF2VA 允许首/尾关键帧与参考媒体并用（无任何参考媒体时报错） |
+| `duration` | 目标视频时长（秒，1–30；2–15 为训练范围，15–30 未测试） |
 | `api_base` / `api_key` / `model` | OpenAI 兼容 API 配置 |
 | `temperature` | 采样温度 |
 | `enable_thinking` / `reasoning_effort` | 是否请求模型思考（reasons），及思考强度（需模型/服务商支持） |
