@@ -116,7 +116,8 @@ def lock_audio(av_latent: dict, original_audio: dict, generated_audio: dict,
 
     - lock   : lock original_audio into the latent and pass it through
     - unlock : leave the latent untouched and pass through generated_audio
-    - remix  : remix original_audio into the latent and pass it through
+    - remix  : remix original_audio into the latent and pass through the
+               VAE-decoded generated_audio
     """
     mode = (mode or "lock").lower()
     if mode not in {"lock", "unlock", "remix"}:
@@ -134,6 +135,8 @@ def lock_audio(av_latent: dict, original_audio: dict, generated_audio: dict,
         return av_latent, generated_audio, report
 
     validate_audio(original_audio, "original_audio")
+    if mode == "remix":
+        validate_audio(generated_audio, "generated_audio")
     if not 0.0 <= float(strength) <= 1.0:
         raise ValueError("strength must be between 0 and 1")
     if audio_vae is None:
@@ -154,16 +157,17 @@ def lock_audio(av_latent: dict, original_audio: dict, generated_audio: dict,
     output["noise_mask"] = comfy.nested_tensor.NestedTensor((video_mask, audio_mask))
 
     duration_s = round(int(template_audio.shape[-1]) / 40.0, 3)
+    output_audio = generated_audio if mode == "remix" else original_audio
     report = "\n".join(
         [
             f"audio_mode={mode}",
-            "output_audio=original_audio",
+            f"output_audio={'generated_audio (VAE decoded)' if mode == 'remix' else 'original_audio'}",
             f"denoise_strength={'0.0 (audio kept exactly)' if mode == 'lock' else str(float(strength))}",
             f"audio_latent_t={int(fitted.shape[-1])} (≈{duration_s}s at 40fps)",
             f"video_mask={'all 1.0' if torch.all(video_mask == 1.0).item() else 'preserved from input'}",
         ]
     )
-    return output, original_audio, report
+    return output, output_audio, report
 
 
 class MiniMaxH3AudioLock(io.ComfyNode):
@@ -177,8 +181,8 @@ class MiniMaxH3AudioLock(io.ComfyNode):
             description=(
                 "Three-way audio routing for an H3 AV latent. lock keeps original_audio "
                 "untouched (denoise mask 0) so only the video is generated. remix denoises "
-                "original_audio by strength. unlock leaves the latent unchanged and passes "
-                "through generated_audio from the audio VAE decoder."
+                "original_audio by strength and outputs the VAE-decoded generated_audio. "
+                "unlock leaves the latent unchanged and passes through generated_audio."
             ),
             category="model/conditioning/minimax/unified",
             inputs=[
@@ -186,11 +190,11 @@ class MiniMaxH3AudioLock(io.ComfyNode):
                 io.Audio.Input("original_audio", optional=True,
                                tooltip="原始音频：lock/remix 时锁进或重绘进 latent。"),
                 io.Audio.Input("generated_audio", optional=True,
-                               tooltip="生成音频：接 VAE 解码（音频）的输出；unlock 时直接透传。"),
+                               tooltip="生成音频：接 VAE 解码（音频）的输出；unlock/remix 时直接透传。"),
                 io.Vae.Input("audio_vae", optional=True,
                              tooltip="MiniMax H3 音频 VAE；lock/remix 时必需。"),
                 io.Combo.Input("mode", options=["lock", "unlock", "remix"], default="lock",
-                               tooltip="lock：锁定 original_audio；unlock：不锁定，输出 generated_audio；remix：按 strength 重绘 original_audio。"),
+                               tooltip="lock：锁定 original_audio，输出原音频；unlock：不锁定，输出 generated_audio；remix：按 strength 重绘 original_audio，输出 generated_audio。"),
                 io.Float.Input("strength", default=0.35, min=0.0, max=1.0, step=0.01,
                                tooltip="remix 模式的降噪强度；lock/unlock 忽略。"),
             ],

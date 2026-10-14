@@ -263,15 +263,15 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 | --- | --- |
 | `av_latent` | 来自 Unified / Context IR 节点的联合 AV latent |
 | `original_audio` | 原始音频；lock/remix 时锁进或重绘进 latent |
-| `generated_audio` | 接 VAE 解码（音频）的输出；unlock 时直接透传 |
+| `generated_audio` | 接 VAE 解码（音频）的输出；unlock/remix 时直接透传 |
 | `audio_vae` | MiniMax H3 音频 VAE；lock/remix 时必需 |
-| `mode` | `lock`：锁定原始音频；`unlock`：不锁定，输出解码音频；`remix`：按 `strength` 重绘原始音频 |
+| `mode` | `lock`：锁定原始音频；`unlock`：不锁定，输出解码音频；`remix`：按 `strength` 重绘原始音频，输出解码音频 |
 | `strength` | remix 模式的去噪强度（0–1，lock/unlock 时忽略） |
 
 ### 输出
 
 - `av_latent`：lock/remix 时替换好源音频并带音频 mask 的 latent；unlock 时原样透传
-- `audio`：lock/remix 输出原始音频；unlock 输出 VAE 解码的生成音频
+- `audio`：lock 输出原始音频；unlock/remix 输出 VAE 解码的生成音频
 - `report`：锁定模式、音频 latent 长度等诊断信息
 
 ### 用法
@@ -286,7 +286,7 @@ Unified/Context IR 节点
 
 `lock` 模式下视频会尽量与源音频口型/节拍同步，音频 100% 保持为源音频；
 `unlock` 模式不修改 latent，直接把 VAE 解码出的生成音频送到输出；
-`remix` 模式适合“保留节奏与语义、但想换音色”的场景。
+`remix` 模式适合“保留节奏与语义、但想换音色”的场景，输出同样取 VAE 解码音频。
 
 ---
 
