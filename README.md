@@ -159,13 +159,13 @@ pip install -r requirements.txt
 - `video_vae` / `audio_vae` 可选：支持无 VAE 的纯文本参考条件
 - 参考视频音轨按官方顺序 `audio → video` 进入文本编码器
 - 修复参考视频无音轨时不进入文本编码器的问题
-- 新增伴随节点 **MiniMax H3 Add Guide (ContextIR)**：任意帧锚点、多帧 guide clip、
-  音频 guide、可串联
+- 官方 **Add Guide for MiniMax H3** 可直接接在 Unified 的 `positive` + `av_latent`
+  后面使用，不需要本插件再复制一个同功能节点
 
 保留的冲突项（未按官方结构改写）：
 
 - 官方现在用 Image to Video / Reference to Video 两个节点 + AddGuide 组合；
-  本插件继续保留单节点 Unified 的 hybrid 结构，AddGuide 作为伴随节点
+  本插件继续保留单节点 Unified 的 hybrid 结构，AddGuide 仍使用官方节点
 - Unified 仍保留 duration/fps 输入和 1–15 秒默认范围；raw length 只是额外入口
 - Unified 仍使用 1920×1088 的整体画布上限，不采用官方 `adapt_canvas` 的
   `768×1344` 参考画布上限
@@ -430,21 +430,6 @@ Unified/Context IR 节点
 
 说明：`global_draft_steps` 和 `mask_mode=crop` 目前只在 `fusion=multidiffusion`
 （Euler 同步路径）生效；`fusion=independent` 会回退到旧路径并在控制台提示。
-
----
-
-## 节点 11：MiniMax H3 Add Guide (ContextIR)
-
-移植官方 `Add Guide for MiniMax H3` 的行为，可与 Unified / 官方条件节点串联：
-
-- `positive` + `latent`：来自 Unified 或官方 Image/Reference to Video
-- `image`：单图或多帧 clip；多帧会裁到 5、22、39…（17n+5）帧
-- `audio`：在同一起始帧锚定音频，并裁到剩余时长
-- `frame_idx`：锚定帧；负数表示从末尾倒数
-- `vae` / `audio_vae`：连接 image / audio 时对应需要
-
-可以连续串联多个 AddGuide，在一条视频里锚定多个位置。节点 id 为
-`MiniMaxH3ContextIRAddGuide`，可与官方节点共存。
 
 ---
 
