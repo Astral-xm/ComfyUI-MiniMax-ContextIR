@@ -123,7 +123,11 @@ pip install -r requirements.txt
 | `duration` | 场景时长（秒，1–15，浮点） |
 | `fps` | 帧率（1–60，默认 24），仅用于时长 → 帧数换算 |
 | `ref_image_size` | 本地参考图缩放：match / max |
+| `audio_mode` | native / lock_source / remix_source；后两者在节点内完成音频锁定/重绘 |
+| `audio_denoise_strength` | remix_source 的降噪强度（0–1） |
+| `drive_audio_ordinal` | 从参考视频音轨和参考音频中选第几路作为驱动音频；0 表示不自动选择 |
 | `first_frame` / `last_frame` | 关键帧 |
+| `source_audio` | 可选；专门用于 lock/remix 的源音频，连接后优先于 `drive_audio_ordinal` |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 
 ### 输出
@@ -133,6 +137,7 @@ pip install -r requirements.txt
 - `conditioned_prompt`：规范化媒体标签后的提示词
 - `media_map_json`：媒体编号与来源映射
 - `report`：本地任务、帧数、媒体数量等诊断信息
+- `mux_audio`：lock_source / remix_source 时输出原始源音频，用于最终无损封装；native 时为 None
 
 ### 注意
 
@@ -145,6 +150,9 @@ pip install -r requirements.txt
     仅末帧 → l2va，首尾帧都有 → fl2va；无任何关键帧 → 报错）。
 - `mode=ref2va` 时首尾帧与参考媒体可同时输入（内部按 hybrid 处理）；
   未接任何参考媒体 → 报错。
+- 音频锁定已内置：`audio_mode=lock_source` 会把源音频锁进 `av_latent`，只生成画面；
+  `remix_source` 按强度重绘音频。独立的 **MiniMax H3 Audio Lock** 节点仍然保留，
+  旧工作流可以继续使用。
 
 ---
 
