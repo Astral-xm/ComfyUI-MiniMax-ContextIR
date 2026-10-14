@@ -253,7 +253,66 @@ def _restore_minimax_refs(contexts) -> None:
         cond["minimax_refs"] = refs
 
 
-def _crop_minimax_refs_in_extra_args(extra_args, tile_axis, ax_start, ax_end):
+def _even_up(n: int) -> int:
+    """向上补齐到偶数（AVPack 编译版对 latent 尺寸的对齐规则）。"""
+    return n if n % 2 == 0 else n + 1
+
+
+def _crop_refs_proportional(refs, tile_axis, start, end, target_h, target_w):
+    """
+    R2V 同步核心：把参考 latent 按比例映射到当前 tile 区域。
+
+    规则与 AVPack 编译版（h3_tiled_sampler.cp312-win_amd64.pyd）逐值一致：
+      s_ref = round(r * start / target)      （半偶舍入，Python round）
+      e_ref = round(r * end   / target)
+      裁切长度 = max(1, e_ref - s_ref)，输出最小 2 并向上补齐到偶数
+      另一轴同样向上补齐到偶数；多出的行列用边缘复制（右/下）填充
+    输出项同步更新 latent_h / latent_w。
+    """
+    out = []
+    for ref in refs:
+        if not (isinstance(ref, dict) and isinstance(ref.get("latent"), torch.Tensor)):
+            out.append(ref)
+            continue
+        item = dict(ref)
+        z = item["latent"]
+        if z.dim() < 4:
+            out.append(ref)
+            continue
+        rh = item.get("latent_h")
+        rw = item.get("latent_w")
+        rh = int(z.shape[-2] if rh is None else rh)
+        rw = int(z.shape[-1] if rw is None else rw)
+        if tile_axis == "H":
+            s_ref = round(rh * start / target_h) if target_h else 0
+            e_ref = round(rh * end / target_h) if target_h else rh
+            keep = max(1, e_ref - s_ref)
+            s0 = min(max(s_ref, 0), max(rh - 1, 0))
+            part = z[..., s0:s0 + keep, :]
+            out_h = _even_up(max(2, keep))
+            out_w = _even_up(rw)
+        else:
+            s_ref = round(rw * start / target_w) if target_w else 0
+            e_ref = round(rw * end / target_w) if target_w else rw
+            keep = max(1, e_ref - s_ref)
+            s0 = min(max(s_ref, 0), max(rw - 1, 0))
+            part = z[..., :, s0:s0 + keep]
+            out_h = _even_up(rh)
+            out_w = _even_up(max(2, keep))
+        pad_h = out_h - int(part.shape[-2])
+        pad_w = out_w - int(part.shape[-1])
+        if pad_h > 0 or pad_w > 0:
+            part = F.pad(
+                part, (0, max(0, pad_w), 0, max(0, pad_h), 0, 0), mode="replicate"
+            )
+        item["latent"] = part.contiguous()
+        item["latent_h"] = out_h
+        item["latent_w"] = out_w
+        out.append(item)
+    return out
+
+
+def _crop_minimax_refs_in_extra_args(extra_args, tile_axis, ax_start, ax_end, target_h, target_w):
     """
     R2V 核心修复：对 extra_args 条件中的 minimax_refs 进行空间同步裁切，
     确保 DiT 在当前 Tile 采样时只接收该区域对应的 R2V 参考特征。
@@ -265,28 +324,9 @@ def _crop_minimax_refs_in_extra_args(extra_args, tile_axis, ax_start, ax_end):
     if "cond" in new_extra and isinstance(new_extra["cond"], dict):
         cond_dict = new_extra["cond"].copy()
         if "minimax_refs" in cond_dict:
-            refs = cond_dict["minimax_refs"]
-            tiled_refs = []
-            for ref in refs:
-                target = ref.get("latent") if isinstance(ref, dict) else ref
-                if isinstance(target, torch.Tensor) and target.ndim >= 4:
-                    if tile_axis == "H":
-                        tiled_ref = target[..., ax_start:ax_end, :].contiguous()
-                    else:
-                        tiled_ref = target[..., :, ax_start:ax_end].contiguous()
-                    if isinstance(ref, dict):
-                        item = dict(ref)
-                        item["latent"] = tiled_ref
-                        if item.get("latent_h") is not None:
-                            item["latent_h"] = int(tiled_ref.shape[-2])
-                        if item.get("latent_w") is not None:
-                            item["latent_w"] = int(tiled_ref.shape[-1])
-                        tiled_refs.append(item)
-                    else:
-                        tiled_refs.append(tiled_ref)
-                else:
-                    tiled_refs.append(ref)
-            cond_dict["minimax_refs"] = tiled_refs
+            cond_dict["minimax_refs"] = _crop_refs_proportional(
+                cond_dict["minimax_refs"], tile_axis, ax_start, ax_end, target_h, target_w
+            )
         new_extra["cond"] = cond_dict
 
     return new_extra
@@ -413,9 +453,10 @@ class H3TiledSampler(io.ComfyNode):
             full_audio_noise = None
 
         if fusion == "multidiffusion":
-            if cls._can_use_synchronized_euler(sampler, keyframe_contexts):
+            if cls._is_euler_sampler(sampler):
                 if debug:
-                    print("  · [一致性优化] 启用 Euler 逐步同步分块 (MultiDiffusion)")
+                    refs_label = "crop" if ref_handling == "crop" else "whole"
+                    print(f"  [fusion] MultiDiffusion 逐步同步分块 (blend={blend}, refs={refs_label})")
                 return io.NodeOutput(*cls._sample_synchronized_euler(
                     latent, noise, guider, sampler, sigmas,
                     video_tensor, audio_tensor, fmt_info,
@@ -424,7 +465,7 @@ class H3TiledSampler(io.ComfyNode):
                     blend=blend, crop_refs=(ref_handling == "crop"),
                 ))
             if debug:
-                print("  · [fusion=multidiffusion] sampler 不是 euler，回退 independent")
+                print("  [fusion] 当前采样器不是 Euler -> 自动回退逐 tile 独立采样")
 
         ref_contexts = _snapshot_minimax_refs(guider)
 
@@ -448,7 +489,7 @@ class H3TiledSampler(io.ComfyNode):
 
             H3TiledSampler._apply_minimax_keyframe_region(keyframe_contexts, tile_axis, ax_start, ax_end, debug)
             if ref_handling == "crop":
-                H3TiledSampler._apply_minimax_refs_region(guider, tile_axis, ax_start, ax_end, debug)
+                H3TiledSampler._apply_minimax_refs_region(guider, tile_axis, ax_start, ax_end, H, W, debug)
             H3TiledSampler._clean_minimax_layout(guider, debug)
 
             try:
@@ -521,11 +562,15 @@ class H3TiledSampler(io.ComfyNode):
         return io.NodeOutput(out_dict, out_denoised_dict)
 
     @staticmethod
-    def _can_use_synchronized_euler(sampler, keyframe_contexts):
+    def _is_euler_sampler(sampler):
+        """
+        AVPack 编译版同款判定（已用 REA/Ghidra 反编译核实）：
+            sampler.sampler_function.__name__ == "sample_euler"
+        关键帧不参与该判定；hard keyframes 由同步路径内的
+        _apply_minimax_keyframe_region(…, 0, axis_total) 处理。
+        """
         sampler_function = getattr(sampler, "sampler_function", None)
-        if getattr(sampler_function, "__name__", "") != "sample_euler":
-            return False
-        return not any(not ctx.get("disable_hard_injection") for ctx in keyframe_contexts)
+        return getattr(sampler_function, "__name__", "") == "sample_euler"
 
     @staticmethod
     def _sample_synchronized_euler(
@@ -629,7 +674,8 @@ class H3TiledSampler(io.ComfyNode):
 
                         tile_extra_args = (
                             _crop_minimax_refs_in_extra_args(
-                                extra_args, tile_axis, ax_start, ax_end)
+                                extra_args, tile_axis, ax_start, ax_end,
+                                video_tensor.shape[-2], video_tensor.shape[-1])
                             if crop_refs else extra_args
                         )
 
@@ -700,34 +746,15 @@ class H3TiledSampler(io.ComfyNode):
         return (out, out_denoised)
 
     @staticmethod
-    def _apply_minimax_refs_region(guider, tile_axis, start, end, debug=False):
-        """兼容非 Euler 模式下，对 guider 原始条件中的 minimax_refs 进行动态切片"""
+    def _apply_minimax_refs_region(guider, tile_axis, start, end, target_h, target_w, debug=False):
+        """兼容非 Euler 模式下，对 guider 原始条件中的 minimax_refs 进行比例裁切"""
         if hasattr(guider, "original_conds"):
             for cond_key, cond_list in guider.original_conds.items():
                 for cond in cond_list:
                     if isinstance(cond, dict) and "minimax_refs" in cond:
-                        refs = cond["minimax_refs"]
-                        tiled_refs = []
-                        for ref in refs:
-                            target = ref.get("latent") if isinstance(ref, dict) else ref
-                            if isinstance(target, torch.Tensor) and target.ndim >= 4:
-                                if tile_axis == "H":
-                                    cropped = target[..., start:end, :].contiguous()
-                                else:
-                                    cropped = target[..., :, start:end].contiguous()
-                                if isinstance(ref, dict):
-                                    item = dict(ref)
-                                    item["latent"] = cropped
-                                    if item.get("latent_h") is not None:
-                                        item["latent_h"] = int(cropped.shape[-2])
-                                    if item.get("latent_w") is not None:
-                                        item["latent_w"] = int(cropped.shape[-1])
-                                    tiled_refs.append(item)
-                                else:
-                                    tiled_refs.append(cropped)
-                            else:
-                                tiled_refs.append(ref)
-                        cond["minimax_refs"] = tiled_refs
+                        cond["minimax_refs"] = _crop_refs_proportional(
+                            cond["minimax_refs"], tile_axis, start, end, target_h, target_w
+                        )
 
     @staticmethod
     def _prepare_minimax_keyframes(guider, full_h, full_w, debug=False):
