@@ -459,6 +459,22 @@ export function computePictureLabels(all) {
   return new Map(cells.filter((c) => c.item).map((c) => [c.item, c.label]));
 }
 
+/** Move a loaded picture onto another cell: a fixed cell number (1 =
+ *  FirstFrame, 2 = LastFrame, 3 = image1) pins it there; "tail" sends it to
+ *  the end of the shifting queue. Used when a picture is dragged onto an
+ *  empty "+" cell — dragging onto an occupied cell swaps instead. */
+export function movePictureToCell(items, item, target) {
+  if (!item || item.kind !== "picture") return items;
+  if (target === "tail") {
+    item.slot = null;
+    const rest = items.filter((i) => i !== item);
+    rest.push(item);
+    return rest;
+  }
+  if (typeof target === "number") item.slot = target;
+  return items;
+}
+
 export function fileCount(all) {
   let n = 0;
   (all || []).filter(isOn).forEach((it) => {
@@ -2415,18 +2431,40 @@ class LoaderPanel {
 
   wireDrop(slot, target = null) {
     slot.addEventListener("dragover", (e) => {
-      if (!e.dataTransfer?.types?.includes("Files")) return;
-      e.preventDefault(); e.stopPropagation();
-      slot.classList.add("hot");
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault(); e.stopPropagation();
+        slot.classList.add("hot");
+      } else if (target != null && e.dataTransfer?.types?.includes("text/plain")) {
+        // A loaded picture dragged from another cell can land here too.
+        e.preventDefault(); e.stopPropagation();
+        slot.classList.add("hot");
+      }
     });
     slot.addEventListener("dragleave", () => slot.classList.remove("hot"));
     slot.addEventListener("drop", (e) => {
-      if (!e.dataTransfer?.files?.length) return;
-      e.preventDefault(); e.stopPropagation();
-      slot.classList.remove("hot");
-      this.root.classList.remove("drop");
-      this.add([...e.dataTransfer.files], target);
+      if (e.dataTransfer?.files?.length) {
+        e.preventDefault(); e.stopPropagation();
+        slot.classList.remove("hot");
+        this.root.classList.remove("drop");
+        this.add([...e.dataTransfer.files], target);
+        return;
+      }
+      const from = parseInt(e.dataTransfer?.getData?.("text/plain"), 10);
+      if (target != null && !Number.isNaN(from)) {
+        e.preventDefault(); e.stopPropagation();
+        slot.classList.remove("hot");
+        this.dropOnCell(from, target);
+      }
     });
+  }
+
+  /** A loaded picture dropped on an empty cell (a fixed cell number or the
+   *  trailing "tail" cell) moves there instead of being added again. */
+  dropOnCell(from, target) {
+    const item = this.items[from];
+    if (!item || item.kind !== "picture") return;
+    this.items = movePictureToCell(this.items, item, target);
+    this.commit();
   }
 
   /** A trailing "+" slot: click to browse, drop to load.
