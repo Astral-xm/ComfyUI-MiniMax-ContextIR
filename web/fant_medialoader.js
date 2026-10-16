@@ -2854,8 +2854,8 @@ const SPLIT_HELP = [
 ];
 
 const SPLIT_WIRING = [
-  ["paired", "video_audio_N", "ref_video_audio_0", "<Video 1> then <V_Audio 1>"],
-  ["alone", "audio_N", "ref_audio_0", "video suppressed \u2014 only <V_Audio 1> is sent"],
+  ["paired", "video_audio_N", "ref_video_audio_1", "<Video 1> then <V_Audio 1>"],
+  ["alone", "audio_N", "ref_audio_1", "video suppressed \u2014 only <V_Audio 1> is sent"],
 ];
 
 function splitHelp(anchor) {

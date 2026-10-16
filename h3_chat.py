@@ -5,7 +5,7 @@ Features:
 - calls any OpenAI-compatible multimodal chat completions API
 - H3 media input ports (first/last frame, reference images/videos/audio)
 - click a connected media chip or type @-mention in the message window to reference media,
-  e.g. @ref_image_0 / @ref_video_0 / @ref_audio_0
+  e.g. @ref_image_1 / @ref_video_1 / @ref_audio_1
 - duration (1-30 s) is injected into the system prompt so shots, actions and
   timestamps stay within the target video length
 - prompt_only toggle: assemble the prompt text without calling the API
@@ -426,21 +426,21 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
                 io.Autogrow.Input("ref_images", optional=True,
-                    template=io.Autogrow.TemplatePrefix(
+                    template=io.Autogrow.TemplateNames(
                         input=io.Image.Input("ref_image", tooltip="Reference image"),
-                        prefix="ref_image_", min=0, max=9)),
+                        names=[f"ref_image_{i}" for i in range(1, 10)], min=0)),
                 io.Autogrow.Input("ref_videos", optional=True,
-                    template=io.Autogrow.TemplatePrefix(
+                    template=io.Autogrow.TemplateNames(
                         input=io.Image.Input("ref_video", tooltip="Reference video frame batch"),
-                        prefix="ref_video_", min=0, max=3)),
+                        names=[f"ref_video_{i}" for i in range(1, 4)], min=0)),
                 io.Autogrow.Input("ref_video_audios", optional=True,
-                    template=io.Autogrow.TemplatePrefix(
+                    template=io.Autogrow.TemplateNames(
                         input=io.Audio.Input("ref_video_audio", tooltip="Soundtrack of the same-numbered reference video"),
-                        prefix="ref_video_audio_", min=0, max=3)),
+                        names=[f"ref_video_audio_{i}" for i in range(1, 4)], min=0)),
                 io.Autogrow.Input("ref_audios", optional=True,
-                    template=io.Autogrow.TemplatePrefix(
+                    template=io.Autogrow.TemplateNames(
                         input=io.Audio.Input("ref_audio", tooltip="Standalone reference audio"),
-                        prefix="ref_audio_", min=0, max=3)),
+                        names=[f"ref_audio_{i}" for i in range(1, 4)], min=0)),
                 io.String.Input("user_prompt", force_input=True, optional=True, default="",
                                 tooltip="Prompt string port; connected text auto-loads into the chat dialog. "
                                         "When the node is bypassed, this text passes through to prompt_text."),
