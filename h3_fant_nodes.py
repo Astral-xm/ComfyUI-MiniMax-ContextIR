@@ -30,7 +30,7 @@ VIDEO_AUDIOS = 30
 AUDIOS = 90
 STRINGS = 30
 # Reference Splitter output port caps (smaller than the loading limits)
-SPLIT_PICTURES = 9
+SPLIT_PICTURES = 11
 SPLIT_VIDEOS = 3
 SPLIT_VIDEO_AUDIOS = 3
 SPLIT_AUDIOS = 3
@@ -234,7 +234,7 @@ class MiniMaxH3MediaLoaderFantastic(io.ComfyNode):
 
 
 class MiniMaxH3ReferenceSplitter(io.ComfyNode):
-    """Fan a `references` bundle out into fixed 9/3/3/3/3 media slots.
+    """Fan a `references` bundle out into fixed 11/3/3/3/3 media slots.
 
     Empty slots are padded with None; execute also returns the two
     resolution pairs and the duration from its own widgets.

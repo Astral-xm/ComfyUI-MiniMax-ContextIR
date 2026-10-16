@@ -13,12 +13,12 @@ export const LOADER_NAME = "MiniMaxH3MediaLoaderFantastic";
 export const SPLITTER_NAME = "MiniMaxH3ReferenceSplitter";
 export const MAX = { picture: 90, video: 30, audio: 90, strings: 30, total: 210 };
 // Skeleton sockets for a fresh Reference Splitter before a loader is wired.
-// Reference Splitter: fixed output sockets (9 pictures / 3 videos /
+// Reference Splitter: fixed output sockets (11 pictures / 3 videos /
 // 3 paired soundtracks / 3 audios / 3 prompt strings) plus the static
 // resolution/duration outputs. Picture sockets follow the loader's naming:
-// FirstFrame / LastFrame first, then image1..image7.
+// FirstFrame / LastFrame first, then image1..image9.
 export const PICTURE_SOCKET_NAMES = ["FirstFrame", "LastFrame",
-  ...Array.from({ length: 7 }, (_, i) => `image${i + 1}`)];
+  ...Array.from({ length: 9 }, (_, i) => `image${i + 1}`)];
 const SPLIT_MEDIA_SOCKETS = [
   ...PICTURE_SOCKET_NAMES.map((name) => ({ name, type: "IMAGE" })),
   ...Array.from({ length: 3 }, (_, i) => ({ name: `video_${i + 1}`, type: "IMAGE" })),
@@ -2911,7 +2911,7 @@ function flash(text) {
 
 /* ------------------------------------------------------- splitter sync */
 
-/** Restore a splitter's outputs to the full fixed 9/3/3/3/3 set plus the
+/** Restore a splitter's outputs to the full fixed 11/3/3/3/3 set plus the
  *  static resolution/duration sockets. Existing sockets are reused so
  *  their links survive; graph links are re-pointed afterwards. */
 export function resetSplitterSockets(sp) {
@@ -2934,7 +2934,7 @@ export function resetSplitterSockets(sp) {
 
 /** Spawn a Reference Splitter and wire this loader's bundle into it.
  *  The bundle output takes many links, so this coexists with the Prompt
- *  Builder connection. The splitter shows a fixed 9/3/3/3/3 socket set
+ *  Builder connection. The splitter shows a fixed 11/3/3/3/3 socket set
  *  plus the resolution/duration outputs. */
 export function addSplitter(node) {
   const existing = outputTargets(node, 0).find((n) => n.type === SPLITTER_NAME);

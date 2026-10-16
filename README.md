@@ -23,7 +23,7 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
 - **Media Loader**：参考 Fantastic MiniMaxH3 PromptBuilder 并修改优化的
   媒体加载器（拖拽上传、预览、排序、音轨拆分、裁剪/抽帧、中英双语界面、预设），
   输出 `references` 素材包。
-- **Reference Splitter**：把 `references` 素材包拆成固定的 9 图 / 3 视频 /
+- **Reference Splitter**：把 `references` 素材包拆成固定的 11 图 / 3 视频 /
   3 视频音轨 / 3 音频 / 3 提示词字符串槽位（空槽位为 None）。
   内置 `short_edge_max` / `align_to` 两个 INT 输入用于全局图片缩放
   （短边 ≤ short_edge_max，尺寸对齐到 align_to 的倍数）。
