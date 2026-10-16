@@ -35,6 +35,11 @@ SPLIT_VIDEOS = 3
 SPLIT_VIDEO_AUDIOS = 3
 SPLIT_AUDIOS = 3
 SPLIT_STRINGS = 3
+# Picture socket names: the first two keep the semantic slot names, the rest
+# follow the loader's image1, image2, ... numbering.
+SPLIT_PICTURE_LABELS = ["FirstFrame", "LastFrame"] + [
+    f"image{i}" for i in range(1, SPLIT_PICTURES - 1)
+]
 
 H3_REFS = io.Custom("H3_REFS")
 
@@ -47,7 +52,7 @@ SLOT_TEMPLATE = io.MatchType.Template(
 
 def _media_names():
     return (
-        [f"picture_{i}" for i in range(1, PICTURES + 1)]
+        ["FirstFrame", "LastFrame"] + [f"image{i}" for i in range(1, PICTURES - 1)]
         + [f"video_{i}" for i in range(1, VIDEOS + 1)]
         + [f"video_audio_{i}" for i in range(1, VIDEO_AUDIOS + 1)]
         + [f"audio_{i}" for i in range(1, AUDIOS + 1)]
@@ -60,18 +65,32 @@ def _partition(items):
     A video's split audio goes to the paired group (its <Audio N> is
     emitted just after its <Video N>) or to the standalone group,
     depending on the item's audio_mode.
+
+    Pictures use slot semantics: the first two slots are always
+    FirstFrame / LastFrame — a switched-off slot stays in place as None —
+    while pictures from the third on keep only the enabled ones, so
+    closing one shifts the rest forward.
     """
     pictures, videos, video_audios, audios, standalone_tracks, strings = \
         [], [], [], [], [], []
+    seen_pictures = 0
     for item in items:
-        # Items switched off in the loader are kept in the list but never
-        # reach the model, so the tag numbering closes up around them.
-        if isinstance(item, dict) and item.get("enabled") is False:
+        if not isinstance(item, dict):
             continue
+        enabled = item.get("enabled") is not False
         kind = item.get("kind")
         if kind == "picture":
-            pictures.append(item)
-        elif kind == "video":
+            seen_pictures += 1
+            if seen_pictures <= 2:
+                pictures.append(item if enabled else None)
+            elif enabled:
+                pictures.append(item)
+            continue
+        # Items switched off in the loader are kept in the list but never
+        # reach the model, so the tag numbering closes up around them.
+        if not enabled:
+            continue
+        if kind == "video":
             mode = item.get("audio_mode", "paired")
             has_audio = bool(item.get("has_audio"))
             if has_audio and mode == "standalone":
@@ -165,7 +184,7 @@ class MiniMaxH3MediaLoaderFantastic(io.ComfyNode):
             return num(trim.get("start")), num(trim.get("end"))
 
         pic_t = [
-            media_io.load_image(i["file"], crop=i.get("crop"))
+            media_io.load_image(i["file"], crop=i.get("crop")) if i else None
             for i in pictures[:PICTURES]
         ]
         vid_t = [
@@ -249,8 +268,8 @@ class MiniMaxH3ReferenceSplitter(io.ComfyNode):
                 ),
             ],
             outputs=(
-                [io.MatchType.Output(SLOT_TEMPLATE, display_name=f"picture_{i}")
-                 for i in range(1, SPLIT_PICTURES + 1)]
+                [io.MatchType.Output(SLOT_TEMPLATE, display_name=name)
+                 for name in SPLIT_PICTURE_LABELS]
                 + [io.MatchType.Output(SLOT_TEMPLATE, display_name=f"video_{i}")
                    for i in range(1, SPLIT_VIDEOS + 1)]
                 + [io.MatchType.Output(SLOT_TEMPLATE, display_name=f"video_audio_{i}")

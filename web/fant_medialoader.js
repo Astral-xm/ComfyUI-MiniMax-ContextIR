@@ -15,9 +15,12 @@ export const MAX = { picture: 90, video: 30, audio: 90, strings: 30, total: 210 
 // Skeleton sockets for a fresh Reference Splitter before a loader is wired.
 // Reference Splitter: fixed output sockets (9 pictures / 3 videos /
 // 3 paired soundtracks / 3 audios / 3 prompt strings) plus the static
-// resolution/duration outputs.
+// resolution/duration outputs. Picture sockets follow the loader's naming:
+// FirstFrame / LastFrame first, then image1..image7.
+export const PICTURE_SOCKET_NAMES = ["FirstFrame", "LastFrame",
+  ...Array.from({ length: 7 }, (_, i) => `image${i + 1}`)];
 const SPLIT_MEDIA_SOCKETS = [
-  ...Array.from({ length: 9 }, (_, i) => ({ name: `picture_${i + 1}`, type: "IMAGE" })),
+  ...PICTURE_SOCKET_NAMES.map((name) => ({ name, type: "IMAGE" })),
   ...Array.from({ length: 3 }, (_, i) => ({ name: `video_${i + 1}`, type: "IMAGE" })),
   ...Array.from({ length: 3 }, (_, i) => ({ name: `video_audio_${i + 1}`, type: "AUDIO" })),
   ...Array.from({ length: 3 }, (_, i) => ({ name: `audio_${i + 1}`, type: "AUDIO" })),
@@ -412,6 +415,24 @@ export function computeTags(all) {
       tags.set(it, `<String ${++s}>`);
   });
   return { tags, extra };
+}
+
+/** Names shown on the picture cells.
+ *
+ *  The first two pictures are the semantic FirstFrame / LastFrame slots and
+ *  keep those names even while switched off. From the third on the labels
+ *  are image1, image2, ... numbered over the enabled pictures, so closing
+ *  one shifts the following numbers forward. */
+export function computePictureLabels(all) {
+  const labels = new Map();
+  let n = 0;
+  (all || []).filter((it) => it.kind === "picture").forEach((it, i) => {
+    if (i === 0) labels.set(it, "FirstFrame");
+    else if (i === 1) labels.set(it, "LastFrame");
+    else if (isOn(it)) labels.set(it, `image${++n}`);
+    else labels.set(it, "off");
+  });
+  return labels;
 }
 
 export function fileCount(all) {
@@ -2313,6 +2334,7 @@ class LoaderPanel {
       .filter(Boolean);
 
     const { tags, extra } = computeTags(this.items);
+    const picLabels = computePictureLabels(this.items);
     const total = fileCount(this.items);
     const pics = this.items.filter((i) => i.kind === "picture");
     const vids = this.items.filter((i) => i.kind === "video");
@@ -2478,7 +2500,8 @@ class LoaderPanel {
         })(),
         el("div", { class: "mml-picbar" },
           this.powerBtn(it),
-          el("span", { class: "mml-tag pic" }, isOn(it) ? tag : "off"),
+          el("span", { class: "mml-tag pic" },
+            picLabels.get(it) ?? (isOn(it) ? tag : "off")),
           this.cropImageBtn(it),
           el("span", { class: "mml-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"))), it));
