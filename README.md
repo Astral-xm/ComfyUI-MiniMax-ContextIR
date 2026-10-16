@@ -344,10 +344,11 @@ Unified/Context IR 节点
 - 媒体预设（presets）保存、加载、删除；
 - 输出单路 `references`（H3_REFS 素材包）；点击面板上的 **刷新输出拆分器**
   按钮会创建并连接 **MiniMax H3 Reference Splitter**（再次点击按当前素材刷新
-  槽位）。图片槽位：前两张固定为 **FirstFrame / LastFrame**（关闭也保留名字
-  与槽位，关闭时输出为空），第 3 张起按已启用素材顺延为 **image1、image2…**；
-  视频/音频槽位按已启用的素材生成。之后再接入官方的 Reference to Video 或本
-  插件的 Unified 节点。
+  槽位）。图片槽位：前三个格子固定为 **FirstFrame / LastFrame / image1** ——
+  点哪个格子加载就把图片装进哪个格子（前面的格子空着也不会让后面的图片往前
+  挤）；**image2 起是可顺延的队尾**，关闭或删除其中一个后，后面的格子会自动
+  往前补。视频/音频槽位按已启用的素材生成。之后再接入官方的 Reference to
+  Video 或本插件的 Unified 节点。
 
 本节点不包含原插件的 Prompt Builder / 提示词库；需要提示词编辑请安装原插件。
 

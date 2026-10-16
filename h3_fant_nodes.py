@@ -66,29 +66,44 @@ def _partition(items):
     emitted just after its <Video N>) or to the standalone group,
     depending on the item's audio_mode.
 
-    Pictures use slot semantics: the first two slots are always
-    FirstFrame / LastFrame — a switched-off slot stays in place as None —
-    while pictures from the third on keep only the enabled ones, so
-    closing one shifts the rest forward.
+    Pictures use cell semantics: the first three cells are fixed —
+    FirstFrame, LastFrame and image1 — so an image loaded there keeps its
+    own cell (a switched-off or missing cell outputs None). Everything
+    after them is a shifting tail (image2, image3, ...): only the enabled
+    pictures are kept, so closing or removing one pulls the following
+    cells forward. States saved before cells existed carry no ``slot``
+    field and number their first three pictures into the fixed cells.
     """
     pictures, videos, video_audios, audios, standalone_tracks, strings = \
         [], [], [], [], [], []
-    seen_pictures = 0
+    pic_items = [
+        item for item in items
+        if isinstance(item, dict) and item.get("kind") == "picture"
+    ]
+    slotted = any("slot" in item for item in pic_items)
+    fixed, tail = {}, []
+    for index, item in enumerate(pic_items):
+        slot = item.get("slot") if slotted else (index + 1 if index < 3 else None)
+        if isinstance(slot, int) and 1 <= slot <= 3 and slot not in fixed:
+            fixed[slot] = item
+        else:
+            tail.append(item)
+    for slot in (1, 2, 3):
+        item = fixed.get(slot)
+        pictures.append(
+            item if (item is not None and item.get("enabled") is not False) else None
+        )
+    pictures += [item for item in tail if item.get("enabled") is not False]
+
     for item in items:
         if not isinstance(item, dict):
             continue
-        enabled = item.get("enabled") is not False
         kind = item.get("kind")
         if kind == "picture":
-            seen_pictures += 1
-            if seen_pictures <= 2:
-                pictures.append(item if enabled else None)
-            elif enabled:
-                pictures.append(item)
             continue
         # Items switched off in the loader are kept in the list but never
         # reach the model, so the tag numbering closes up around them.
-        if not enabled:
+        if item.get("enabled") is False:
             continue
         if kind == "video":
             mode = item.get("audio_mode", "paired")

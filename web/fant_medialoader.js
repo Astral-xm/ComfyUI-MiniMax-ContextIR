@@ -417,32 +417,46 @@ export function computeTags(all) {
   return { tags, extra };
 }
 
-/** Names shown on the picture cells.
+/** Cells of the picture grid, in display order.
  *
- *  The first two pictures are the semantic FirstFrame / LastFrame slots and
- *  keep those names even while switched off. From the third on the labels
- *  are image1, image2, ... numbered over the enabled pictures, so closing
- *  one shifts the following numbers forward. */
-export function computePictureLabels(all) {
+ *  The first three cells are fixed — FirstFrame, LastFrame and image1 — so
+ *  an image loaded there only ever occupies that cell, even when the cells
+ *  in front of it are still empty. Everything after them is a shifting tail
+ *  (image2, image3, ...): it numbers the enabled pictures in order, so
+ *  closing or removing one pulls the following cells forward. A trailing
+ *  "+" cell appears once the image1 cell (or the tail) exists. */
+export function pictureGridLayout(all) {
   const pics = (all || []).filter((it) => it.kind === "picture");
-  const labels = pictureSlotLayout(all, 0);
-  return new Map(pics.map((it, i) => [it, labels[i]]));
+  const fixed = new Map();
+  const tail = [];
+  const take = (it, s) => {
+    if (Number.isInteger(s) && s >= 1 && s <= 3 && !fixed.has(s)) fixed.set(s, it);
+    else tail.push(it);
+  };
+  const legacy = [];
+  pics.forEach((it) => ("slot" in it ? take(it, it.slot) : legacy.push(it)));
+  legacy.forEach((it) => {
+    const free = [1, 2, 3].find((s) => !fixed.has(s));
+    take(it, free == null ? null : free);
+  });
+  const cells = [];
+  const names = ["FirstFrame", "LastFrame", "image1"];
+  for (let s = 1; s <= 3; s++)
+    cells.push({ slot: s, item: fixed.get(s) || null, label: names[s - 1] });
+  let num = 1;
+  tail.forEach((it) => {
+    if (isOn(it)) num += 1;
+    cells.push({ slot: null, item: it, label: isOn(it) ? `image${num}` : "off" });
+  });
+  if (fixed.get(3) || tail.length)
+    cells.push({ slot: null, item: null, label: `image${num + 1}` });
+  return cells;
 }
 
-/** Slot names for the picture grid: the loaded pictures plus `placeholders`
- *  pending cells. Same rules as above; placeholders count as enabled. */
-export function pictureSlotLayout(all, placeholders = 0) {
-  const pics = (all || []).filter((it) => it.kind === "picture");
-  const labels = [];
-  let n = 0;
-  for (let i = 0; i < pics.length + placeholders; i++) {
-    const enabled = i < pics.length ? isOn(pics[i]) : true;
-    if (i === 0) labels.push("FirstFrame");
-    else if (i === 1) labels.push("LastFrame");
-    else if (enabled) labels.push(`image${++n}`);
-    else labels.push("off");
-  }
-  return labels;
+/** Names shown on the loaded picture cells. */
+export function computePictureLabels(all) {
+  const cells = pictureGridLayout(all);
+  return new Map(cells.filter((c) => c.item).map((c) => [c.item, c.label]));
 }
 
 export function fileCount(all) {
@@ -1443,6 +1457,7 @@ class TrimModal {
         height: sh,
         has_audio: false,
         audio_mode: "off",
+        slot: panel.nextPictureSlot(),
       });
       panel.say(`Added ${sw}\u00d7${sh} frame from ${at.toFixed(2)}s` +
         (c ? " (cropped)" : "") + " as a picture reference.");
@@ -1894,6 +1909,9 @@ class LoaderPanel {
     this.node = node;
     (node._mmlPanels = node._mmlPanels || []).push(this);
     this.items = this.read();
+    this.normalizePictureSlots();
+    this.sortPictures();
+    this._pendingTarget = null;
     this.busy = 0;
     this.presets = [];
     this.presetName = "";
@@ -1909,7 +1927,11 @@ class LoaderPanel {
     this.picker = el("input", {
       type: "file", multiple: true, style: { display: "none" },
       accept: "image/*,video/*,audio/*",
-      onchange: (e) => { this.add([...e.target.files]); e.target.value = ""; },
+      onchange: (e) => {
+        this.add([...e.target.files], this._pendingTarget);
+        this._pendingTarget = null;
+        e.target.value = "";
+      },
     });
     this.root.append(this.picker);
     this._langObserver = observeLanguage(this.root);
@@ -2007,6 +2029,8 @@ class LoaderPanel {
   }
 
   commit() {
+    this.normalizePictureSlots();
+    this.sortPictures();
     const w = this.widget();
     if (w) w.value = JSON.stringify(this.items);
     try { this.node.setDirtyCanvas?.(true, true); } catch (e) { /* Vue redraws itself */ }
@@ -2097,14 +2121,72 @@ class LoaderPanel {
 
   count(kind) { return this.items.filter((i) => i.kind === kind).length; }
 
+  /** True when a fixed picture cell (1 = FirstFrame, 2 = LastFrame,
+   *  3 = image1) already holds an item. */
+  pictureCellTaken(cell) {
+    return this.items.some((i) => i.kind === "picture" && i.slot === cell);
+  }
+
+  /** Where the next plain picture goes: the first free fixed cell, else the
+   *  tail (null). */
+  nextPictureSlot() {
+    for (const s of [1, 2, 3]) if (!this.pictureCellTaken(s)) return s;
+    return null;
+  }
+
+  /** Give every picture an explicit slot — a number for the fixed cells,
+   *  null for the tail. States saved before cells existed number their
+   *  first three pictures into the fixed cells. */
+  normalizePictureSlots() {
+    const pics = this.items.filter((i) => i.kind === "picture");
+    if (!pics.length) return;
+    const claimed = new Set();
+    const legacy = [];
+    const plan = [];
+    for (const it of pics) {
+      const s = it.slot;
+      if (Number.isInteger(s) && s >= 1 && s <= 3 && !claimed.has(s)) {
+        claimed.add(s);
+        plan.push([it, s]);
+      } else if (!("slot" in it)) {
+        legacy.push(it);
+      } else {
+        plan.push([it, null]);
+      }
+    }
+    for (const it of legacy) {
+      const free = [1, 2, 3].find((s) => !claimed.has(s));
+      if (free != null) claimed.add(free);
+      plan.push([it, free == null ? null : free]);
+    }
+    for (const [it, s] of plan) it.slot = s;
+  }
+
+  /** Keep picture items in cell order — FirstFrame, LastFrame, image1, then
+   *  the tail — inside the shared item list. */
+  sortPictures() {
+    const pics = this.items.filter((i) => i.kind === "picture");
+    if (pics.length < 2) return;
+    const rank = (i) => (Number.isInteger(i.slot) && i.slot >= 1 && i.slot <= 3) ? i.slot : 4;
+    const ordered = [...pics].sort((a, b) => rank(a) - rank(b));
+    let k = 0;
+    this.items = this.items.map((i) => (i.kind === "picture" ? ordered[k++] : i));
+  }
+
   say(text, isError) {
     this.msg = text || "";
     this.msgErr = !!isError;
   }
 
-  async add(files) {
+  async add(files, target = null) {
     if (!files.length) return;
     this.say("");
+    // Pictures: a placeholder click pins the first file to that fixed cell
+    // (FirstFrame / LastFrame / image1); any further files queue on the
+    // shifting tail. A plain "Load files…" fills the fixed cells first.
+    let mode = target === "tail" ? "tail"
+      : (typeof target === "number" ? "cell" : "auto");
+    const cellNo = typeof target === "number" ? target : null;
     const caps = await capabilities();
     for (const file of files) {
       const ext = (file.name.split(".").pop() || "").toLowerCase();
@@ -2132,7 +2214,7 @@ class LoaderPanel {
         // stays available, just switched off until room is made.
         const budgetFull = audioCount(this.items) >= MAX.audio;
         const pairable = info.kind === "video" && info.has_audio;
-        this.items.push({
+        const item = {
           kind: info.kind,
           file: info.file,
           name: info.original || info.name,
@@ -2141,7 +2223,20 @@ class LoaderPanel {
           height: info.height ?? null,
           has_audio: !!info.has_audio,
           audio_mode: pairable && !budgetFull ? "paired" : "off",
-        });
+        };
+        if (info.kind === "picture") {
+          // Fixed first three cells — FirstFrame / LastFrame / image1 —
+          // then the shifting tail (image2, image3, ...).
+          if (mode === "cell") {
+            item.slot = cellNo != null && !this.pictureCellTaken(cellNo) ? cellNo : null;
+            mode = "tail";   // only the first picked file lands on that cell
+          } else if (mode === "auto") {
+            item.slot = this.nextPictureSlot();
+          } else {
+            item.slot = null;
+          }
+        }
+        this.items.push(item);
         if (pairable && budgetFull)
           this.say(`${info.original || info.name} loaded with its audio off — ` +
             `already using ${MAX.audio} audio clips.`, true);
@@ -2211,9 +2306,17 @@ class LoaderPanel {
   swap(from, to) {
     if (from === to || from < 0 || to < 0 ||
         from >= this.items.length || to >= this.items.length) return;
-    const tmp = this.items[from];
-    this.items[from] = this.items[to];
-    this.items[to] = tmp;
+    const a = this.items[from];
+    const b = this.items[to];
+    this.items[from] = b;
+    this.items[to] = a;
+    // Pictures exchange cells: dragging one onto another swaps their slots
+    // (fixed cell ↔ fixed cell, or a tail picture with a fixed one).
+    if (a && b && a.kind === "picture" && b.kind === "picture") {
+      const s = a.slot ?? null;
+      a.slot = b.slot ?? null;
+      b.slot = s;
+    }
     this.commit();
   }
 
@@ -2310,7 +2413,7 @@ class LoaderPanel {
     return node;
   }
 
-  wireDrop(slot) {
+  wireDrop(slot, target = null) {
     slot.addEventListener("dragover", (e) => {
       if (!e.dataTransfer?.types?.includes("Files")) return;
       e.preventDefault(); e.stopPropagation();
@@ -2322,25 +2425,26 @@ class LoaderPanel {
       e.preventDefault(); e.stopPropagation();
       slot.classList.remove("hot");
       this.root.classList.remove("drop");
-      this.add([...e.dataTransfer.files]);
+      this.add([...e.dataTransfer.files], target);
     });
   }
 
   /** A trailing "+" slot: click to browse, drop to load.
-   *  Picture placeholders also carry the name of the slot they will fill
-   *  (FirstFrame / LastFrame / imageN) below the plus; like every other
-   *  placeholder they have no power dot, crop or remove controls. */
-  moreSlot(kind, label) {
+   *  Picture placeholders carry the name of the cell they will fill
+   *  (FirstFrame / LastFrame / image1 / imageN) and, for the fixed first
+   *  three, the cell number so the picked file lands in exactly that cell.
+   *  Like every other placeholder they have no power dot, crop or remove. */
+  moreSlot(kind, label, target = null) {
     const slot = el("div", { class: "mml-slot more" + (label ? " named" : ""),
       title: label
         ? `Load ${kind} \u2014 ${label} slot \u2014 click to browse or ` +
           `drop a file (${this.count(kind)}/${MAX[kind]})`
         : `Load ${kind} \u2014 click to browse or drop a file ` +
           `(${this.count(kind)}/${MAX[kind]})`,
-      onclick: () => this.picker.click() },
+      onclick: () => { this._pendingTarget = target; this.picker.click(); } },
       el("span", { class: "mml-plus" }, "+"),
       label ? el("span", { class: "mml-slotname" }, label) : null);
-    this.wireDrop(slot);
+    this.wireDrop(slot, target);
     return slot;
   }
 
@@ -2357,7 +2461,6 @@ class LoaderPanel {
       .filter(Boolean);
 
     const { tags, extra } = computeTags(this.items);
-    const picLabels = computePictureLabels(this.items);
     const total = fileCount(this.items);
     const pics = this.items.filter((i) => i.kind === "picture");
     const vids = this.items.filter((i) => i.kind === "video");
@@ -2365,7 +2468,8 @@ class LoaderPanel {
     const kids = [this.picker];
 
     kids.push(el("div", { class: "mml-top" },
-      el("button", { class: "mml-btn", onclick: () => this.picker.click() },
+      el("button", { class: "mml-btn",
+        onclick: () => { this._pendingTarget = null; this.picker.click(); } },
         "Load files\u2026"),
       el("button", { class: "mml-btn mml-sm",
         title: uiLang === "zh" ? "Switch to English" : "Switch to Chinese",
@@ -2492,8 +2596,13 @@ class LoaderPanel {
     left.append(el("div", { class: "mml-sec" }, "pictures",
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
-    pics.forEach((it) => {
-      const tag = (tags.get(it) || "").slice(1, -1);
+    for (const cell of pictureGridLayout(this.items)) {
+      if (!cell.item) {
+        picCells.push(this.moreSlot("picture", cell.label,
+          cell.slot == null ? "tail" : cell.slot));
+        continue;
+      }
+      const it = cell.item;
       picCells.push(this.reorderable(el("div",
         { class: "mml-slot filled pic" + (isOn(it) ? "" : " off") },
         (() => {
@@ -2523,22 +2632,10 @@ class LoaderPanel {
         })(),
         el("div", { class: "mml-picbar" },
           this.powerBtn(it),
-          el("span", { class: "mml-tag pic" },
-            picLabels.get(it) ?? (isOn(it) ? tag : "off")),
+          el("span", { class: "mml-tag pic" }, cell.label),
           this.cropImageBtn(it),
           el("span", { class: "mml-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"))), it));
-    });
-    // Picture placeholders: keep the semantic slots visible as "+" targets —
-    // at least FirstFrame / LastFrame / image1, then one more for the next
-    // picture. Placeholders carry no power dot / crop / remove controls.
-    const phCount = pics.length >= MAX.picture
-      ? 0
-      : Math.min(Math.max(1, 3 - pics.length), MAX.picture - pics.length);
-    if (phCount > 0) {
-      const slotLabels = pictureSlotLayout(this.items, phCount);
-      for (let k = 0; k < phCount; k++)
-        picCells.push(this.moreSlot("picture", slotLabels[pics.length + k]));
     }
     left.append(el("div", { class: "mml-pics" }, picCells));
 
