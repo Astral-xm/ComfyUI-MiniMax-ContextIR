@@ -424,14 +424,24 @@ export function computeTags(all) {
  *  are image1, image2, ... numbered over the enabled pictures, so closing
  *  one shifts the following numbers forward. */
 export function computePictureLabels(all) {
-  const labels = new Map();
+  const pics = (all || []).filter((it) => it.kind === "picture");
+  const labels = pictureSlotLayout(all, 0);
+  return new Map(pics.map((it, i) => [it, labels[i]]));
+}
+
+/** Slot names for the picture grid: the loaded pictures plus `placeholders`
+ *  pending cells. Same rules as above; placeholders count as enabled. */
+export function pictureSlotLayout(all, placeholders = 0) {
+  const pics = (all || []).filter((it) => it.kind === "picture");
+  const labels = [];
   let n = 0;
-  (all || []).filter((it) => it.kind === "picture").forEach((it, i) => {
-    if (i === 0) labels.set(it, "FirstFrame");
-    else if (i === 1) labels.set(it, "LastFrame");
-    else if (isOn(it)) labels.set(it, `image${++n}`);
-    else labels.set(it, "off");
-  });
+  for (let i = 0; i < pics.length + placeholders; i++) {
+    const enabled = i < pics.length ? isOn(pics[i]) : true;
+    if (i === 0) labels.push("FirstFrame");
+    else if (i === 1) labels.push("LastFrame");
+    else if (enabled) labels.push(`image${++n}`);
+    else labels.push("off");
+  }
   return labels;
 }
 
@@ -630,6 +640,12 @@ const CSS = `
   font-size:10px;cursor:pointer;overflow:hidden;min-width:0;min-height:0;}
 .mml-slot.more{font-size:16px;color:#5c6472;}
 .mml-slot.more:hover{color:#8a93a3;}
+.mml-slot.more.named{flex-direction:column;gap:0;}
+.mml-slot.more.named .mml-plus{font-size:15px;line-height:1;}
+.mml-slot.more .mml-slotname{font-size:9px;letter-spacing:.3px;color:#5c6472;
+  max-width:100%;padding:0 4px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;pointer-events:none;}
+.mml-slot.more:hover .mml-slotname{color:#8a93a3;}
 .mml-slot:hover{border-color:#59637a;color:#8a93a3;}
 .mml-slot.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
 .mml-slot.filled{border-style:solid;border-color:#2e3440;background:#12151b;cursor:default;
@@ -2310,13 +2326,20 @@ class LoaderPanel {
     });
   }
 
-  /** The single trailing "+" slot: click to browse, drop to load. */
-  moreSlot(kind) {
-    const slot = el("div", { class: "mml-slot more",
-      title: `Load ${kind} \u2014 click to browse or drop a file ` +
-        `(${this.count(kind)}/${MAX[kind]})`,
+  /** A trailing "+" slot: click to browse, drop to load.
+   *  Picture placeholders also carry the name of the slot they will fill
+   *  (FirstFrame / LastFrame / imageN) below the plus; like every other
+   *  placeholder they have no power dot, crop or remove controls. */
+  moreSlot(kind, label) {
+    const slot = el("div", { class: "mml-slot more" + (label ? " named" : ""),
+      title: label
+        ? `Load ${kind} \u2014 ${label} slot \u2014 click to browse or ` +
+          `drop a file (${this.count(kind)}/${MAX[kind]})`
+        : `Load ${kind} \u2014 click to browse or drop a file ` +
+          `(${this.count(kind)}/${MAX[kind]})`,
       onclick: () => this.picker.click() },
-      "+");
+      el("span", { class: "mml-plus" }, "+"),
+      label ? el("span", { class: "mml-slotname" }, label) : null);
     this.wireDrop(slot);
     return slot;
   }
@@ -2506,8 +2529,17 @@ class LoaderPanel {
           el("span", { class: "mml-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"))), it));
     });
-    if (pics.length < MAX.picture)
-      picCells.push(this.moreSlot("picture"));
+    // Picture placeholders: keep the semantic slots visible as "+" targets —
+    // at least FirstFrame / LastFrame / image1, then one more for the next
+    // picture. Placeholders carry no power dot / crop / remove controls.
+    const phCount = pics.length >= MAX.picture
+      ? 0
+      : Math.min(Math.max(1, 3 - pics.length), MAX.picture - pics.length);
+    if (phCount > 0) {
+      const slotLabels = pictureSlotLayout(this.items, phCount);
+      for (let k = 0; k < phCount; k++)
+        picCells.push(this.moreSlot("picture", slotLabels[pics.length + k]));
+    }
     left.append(el("div", { class: "mml-pics" }, picCells));
 
     // prompts: horizontal text bars, vertically aligned with the audio box
