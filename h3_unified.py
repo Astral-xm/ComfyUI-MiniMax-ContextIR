@@ -36,6 +36,8 @@ import comfy.nested_tensor
 import comfy.utils
 from comfy_api.latest import ComfyExtension, io
 
+from .h3_audio_lock import lock_audio
+
 
 CANVAS_MULTIPLE = 32
 BASE_SHORT_EDGE = 768
@@ -174,6 +176,24 @@ def sorted_autogrow_items(values) -> list[tuple[int, object]]:
 
 def sorted_autogrow_values(values) -> list:
     return [value for _, value in sorted_autogrow_items(values)]
+
+
+def _pick_source_audio(source: str, ref_video_audios, ref_audios):
+    """Resolve a ``video_audio_N`` / ``audio_N`` selector to the connected AUDIO."""
+    source = str(source or "").strip().lower()
+    if source.startswith("video_audio_"):
+        try:
+            ordinal = int(source.rsplit("_", 1)[-1])
+        except ValueError:
+            return None
+        return dict(sorted_autogrow_items(ref_video_audios)).get(ordinal)
+    if source.startswith("audio_"):
+        try:
+            ordinal = int(source.rsplit("_", 1)[-1])
+        except ValueError:
+            return None
+        return dict(sorted_autogrow_items(ref_audios)).get(ordinal)
+    return None
 
 
 def _resize_reference_image(image, width: int, height: int, ref_image_size: str):
@@ -404,6 +424,9 @@ def build_unified_conditioning(
     ref_videos=None,
     ref_video_audios=None,
     ref_audios=None,
+    source_audio: str = "off",
+    audio_mode: str = "lock",
+    audio_strength: float = 0.35,
 ):
     if width % 32 or height % 32:
         raise ValueError("MiniMax H3 width and height must be divisible by 32")
@@ -441,6 +464,35 @@ def build_unified_conditioning(
             )
 
     latent, frame_count = empty_av_latent(width, height, length)
+
+    # Audio lock (merged from the old Audio Lock node): select one of the
+    # already-connected soundtracks / audios as the source track, lock it
+    # into the AV latent and expose the exact waveform on the "source_audio"
+    # output. Keeping this inside the conditioning node avoids the
+    # AudioLock -> VAEDecodeAudio -> Sampler -> AudioLock dependency cycle.
+    source_audio_value = None
+    lock_report = ""
+    if str(source_audio or "off").strip().lower() not in {"", "off", "none"}:
+        source_audio_value = _pick_source_audio(source_audio, ref_video_audios, ref_audios)
+        if source_audio_value is None:
+            raise ValueError(
+                f"source_audio={source_audio!r} is selected but that input is not connected"
+            )
+        if audio_vae is None:
+            raise ValueError("audio_vae is required when source_audio is selected")
+        audio_mode = (audio_mode or "lock").lower()
+        if audio_mode not in {"lock", "remix", "unlock"}:
+            raise ValueError(f"audio_mode must be lock/remix/unlock, got {audio_mode!r}")
+        if not 0.0 <= float(audio_strength) <= 1.0:
+            raise ValueError("audio_strength must be between 0 and 1")
+        if audio_mode == "unlock":
+            lock_report = f"audio_lock={source_audio} unlocked (latent unchanged)"
+        else:
+            latent, _locked_audio, lock_report = lock_audio(
+                latent, source_audio_value, audio_vae,
+                mode=audio_mode, strength=audio_strength,
+            )
+            lock_report = f"audio_lock={source_audio}\n{lock_report}"
 
     keyframes = []
     keyframe_images = []
@@ -589,8 +641,11 @@ def build_unified_conditioning(
     ]
     if ignored_inputs:
         report_lines.append("ignored_inputs=" + ",".join(ignored_inputs))
+    if lock_report:
+        report_lines.append(lock_report)
     report_lines.extend(f"warning: {warning}" for warning in prompt_warnings)
-    return conditioning, latent, conditioned_prompt, media_map, "\n".join(report_lines)
+    return (conditioning, latent, conditioned_prompt, media_map,
+            "\n".join(report_lines), source_audio_value)
 
 
 # ---------------------------------------------------------------- the node
@@ -644,6 +699,18 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                     template=io.Autogrow.TemplateNames(
                         input=io.Audio.Input("ref_audio", tooltip="Standalone reference audio"),
                         names=[f"ref_audio_{i}" for i in range(1, 4)], min=0)),
+                io.Combo.Input(
+                    "source_audio",
+                    options=["off", "video_audio_1", "video_audio_2", "video_audio_3",
+                             "audio_1", "audio_2", "audio_3"],
+                    default="off",
+                    tooltip="源音频：从已连接的视频音轨(video_audio_N)或独立音频(audio_N)中选一个；"
+                            "选中后按 audio_mode 锁进 AV latent，并把原始波形从“源音频”输出。off 不锁定。"),
+                io.Combo.Input("audio_mode", options=["lock", "remix", "unlock"], default="lock",
+                               tooltip="lock：音频 denoise=0（完全保持原音，只生成画面）；"
+                                       "remix：按 audio_strength 重绘；unlock：不修改 latent。"),
+                io.Float.Input("audio_strength", default=0.35, min=0.0, max=1.0, step=0.01,
+                               tooltip="remix 模式的音频降噪强度；lock/unlock 忽略。"),
             ],
             outputs=[
                 io.Conditioning.Output(display_name="positive"),
@@ -651,6 +718,7 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 io.String.Output(display_name="conditioned_prompt"),
                 io.String.Output(display_name="media_map_json"),
                 io.String.Output(display_name="report"),
+                io.Audio.Output(display_name="源音频"),
             ],
         )
 
@@ -660,7 +728,8 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 ref_image_size="match",
                 first_frame=None, last_frame=None,
                 ref_images=None, ref_videos=None, ref_video_audios=None,
-                ref_audios=None) -> io.NodeOutput:
+                ref_audios=None,
+                source_audio="off", audio_mode="lock", audio_strength=0.35) -> io.NodeOutput:
         override = int(length_override or 0)
         if override > 0:
             length = align_frame_count(override)
@@ -687,6 +756,9 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
             ref_videos=ref_videos,
             ref_video_audios=ref_video_audios,
             ref_audios=ref_audios,
+            source_audio=source_audio,
+            audio_mode=audio_mode,
+            audio_strength=audio_strength,
         ))
 
 
