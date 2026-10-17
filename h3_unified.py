@@ -472,6 +472,9 @@ def build_unified_conditioning(
     # AudioLock -> VAEDecodeAudio -> Sampler -> AudioLock dependency cycle.
     source_audio_value = None
     lock_report = ""
+    resolved_audio_mode = str(audio_mode or "lock").strip().lower()
+    if resolved_audio_mode not in {"lock", "remix", "unlock"}:
+        raise ValueError(f"audio_mode must be lock/remix/unlock, got {audio_mode!r}")
     if str(source_audio or "off").strip().lower() not in {"", "off", "none"}:
         source_audio_value = _pick_source_audio(source_audio, ref_video_audios, ref_audios)
         if source_audio_value is None:
@@ -480,17 +483,14 @@ def build_unified_conditioning(
             )
         if audio_vae is None:
             raise ValueError("audio_vae is required when source_audio is selected")
-        audio_mode = (audio_mode or "lock").lower()
-        if audio_mode not in {"lock", "remix", "unlock"}:
-            raise ValueError(f"audio_mode must be lock/remix/unlock, got {audio_mode!r}")
         if not 0.0 <= float(audio_strength) <= 1.0:
             raise ValueError("audio_strength must be between 0 and 1")
-        if audio_mode == "unlock":
+        if resolved_audio_mode == "unlock":
             lock_report = f"audio_lock={source_audio} unlocked (latent unchanged)"
         else:
             latent, _locked_audio, lock_report = lock_audio(
                 latent, source_audio_value, audio_vae,
-                mode=audio_mode, strength=audio_strength,
+                mode=resolved_audio_mode, strength=audio_strength,
             )
             lock_report = f"audio_lock={source_audio}\n{lock_report}"
 
@@ -645,7 +645,7 @@ def build_unified_conditioning(
         report_lines.append(lock_report)
     report_lines.extend(f"warning: {warning}" for warning in prompt_warnings)
     return (conditioning, latent, conditioned_prompt, media_map,
-            "\n".join(report_lines), source_audio_value)
+            "\n".join(report_lines), source_audio_value, resolved_audio_mode)
 
 
 # ---------------------------------------------------------------- the node
@@ -668,18 +668,24 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 io.Vae.Input("video_vae", optional=True,
                              tooltip="MiniMax H3 video VAE. Optional for text-only reference conditioning; required for keyframes and DiT reference blocks."),
                 io.Vae.Input("audio_vae", optional=True, tooltip="Required only for reference audio / video soundtracks."),
-                io.String.Input("prompt", multiline=True, dynamic_prompts=True),
+                io.String.Input("prompt", multiline=True, dynamic_prompts=True, optional=True,
+                                tooltip="输入提示词（用 <Picture i> / <Video k> / <Audio j> 引用已连接媒体）"),
                 io.Combo.Input("mode", options=["auto", "t2va", "fl2va", "ref2va"], default="auto",
+                               optional=True,
                                tooltip="auto detects the task from connected inputs. Explicit modes ignore extra inputs and raise only when a required input is missing: t2va ignores all media; fl2va requires at least one keyframe (maps to i2va/l2va/fl2va) and ignores references; ref2va requires at least one reference and uses keyframes + references together."),
-                io.Int.Input("width", default=1344, min=32, max=16384, step=32),
-                io.Int.Input("height", default=768, min=32, max=16384, step=32),
+                io.Int.Input("width", default=1344, min=32, max=16384, step=32, optional=True),
+                io.Int.Input("height", default=768, min=32, max=16384, step=32, optional=True),
                 io.Float.Input("duration", default=5.0, min=1, max=30, step=0.01,
+                               optional=True,
                                tooltip="Scene duration in seconds (1-30). H3's trained range is roughly 5-15s; longer is allowed but untested. Frame count is computed automatically via max(5, round(duration*fps)) snapped up to the 17k+5 grid."),
                 io.Int.Input("length_override", default=0, min=0, max=3600, step=1,
+                             optional=True,
                              tooltip="0 uses duration/fps. >0 uses this raw 24fps frame count instead, snapped up to the official 17n+5 grid."),
                 io.Int.Input("fps", default=24, min=1, max=60,
+                             optional=True,
                              tooltip="Frame rate used to convert duration to frames."),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
+                               optional=True,
                                tooltip="'match' scales each reference image (down only, aspect-preserving) to the generation pixel area; 'max' uses a 2048px short edge for best identity fidelity but is slower."),
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
@@ -704,12 +710,15 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                     options=["off", "video_audio_1", "video_audio_2", "video_audio_3",
                              "audio_1", "audio_2", "audio_3"],
                     default="off",
+                    optional=True,
                     tooltip="源音频：从已连接的视频音轨(video_audio_N)或独立音频(audio_N)中选一个；"
                             "选中后按 audio_mode 锁进 AV latent，并把原始波形从“源音频”输出。off 不锁定。"),
                 io.Combo.Input("audio_mode", options=["lock", "remix", "unlock"], default="lock",
+                               optional=True,
                                tooltip="lock：音频 denoise=0（完全保持原音，只生成画面）；"
                                        "remix：按 audio_strength 重绘；unlock：不修改 latent。"),
                 io.Float.Input("audio_strength", default=0.35, min=0.0, max=1.0, step=0.01,
+                               optional=True,
                                tooltip="remix 模式的音频降噪强度；lock/unlock 忽略。"),
             ],
             outputs=[
@@ -719,11 +728,14 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                 io.String.Output(display_name="media_map_json"),
                 io.String.Output(display_name="report"),
                 io.Audio.Output(display_name="源音频"),
+                io.Combo.Output(display_name="audio_mode",
+                                options=["lock", "remix", "unlock"],
+                                tooltip="当前生效的音频模式，可直接接 MiniMax H3 Audio Select。"),
             ],
         )
 
     @classmethod
-    def execute(cls, clip, video_vae, audio_vae=None, prompt="", width=1344, height=768,
+    def execute(cls, clip, video_vae=None, audio_vae=None, prompt="", width=1344, height=768,
                 duration=5.0, length_override=0, fps=24, mode="auto",
                 ref_image_size="match",
                 first_frame=None, last_frame=None,

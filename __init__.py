@@ -1,5 +1,6 @@
 from comfy_api.latest import ComfyExtension
 
+from .h3_audio_select import MiniMaxH3AudioSelect
 from .h3_chat import MiniMaxH3MultimodalChat
 from .h3_concat_av import MiniMaxH3ConcatAVLatent
 from .h3_context_ir import MiniMaxH3ContextIR
@@ -24,6 +25,7 @@ class MiniMaxH3Extension(ComfyExtension):
     async def get_node_list(self):
         return [
             MiniMaxH3UnifiedToVideo,
+            MiniMaxH3AudioSelect,
             MiniMaxH3ConcatAVLatent,
             MiniMaxH3ContextIR,
             MiniMaxH3MultimodalChat,
@@ -42,6 +44,7 @@ async def comfy_entrypoint():
 
 __all__ = [
     "MiniMaxH3UnifiedToVideo",
+    "MiniMaxH3AudioSelect",
     "MiniMaxH3ConcatAVLatent",
     "MiniMaxH3ContextIR",
     "MiniMaxH3MultimodalChat",

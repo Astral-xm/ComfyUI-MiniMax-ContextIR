@@ -231,7 +231,8 @@ class MiniMaxH3UnifiedContextIR(io.ComfyNode):
             # anchors plus reference media)
             local_task = "auto"
 
-        conditioning, latent, _conditioned_prompt, media_map, unified_report = build_unified_conditioning(
+        (conditioning, latent, _conditioned_prompt, media_map, unified_report,
+         _source_audio, _audio_mode) = build_unified_conditioning(
             clip,
             video_vae,
             audio_vae,

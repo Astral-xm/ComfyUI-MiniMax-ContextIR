@@ -21,6 +21,8 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
 - **音频锁定（内置于 MiniMax H3 Unified to Video）**：`source_audio` 可选
   `video_audio_1..3` / `audio_1..3`，采样前把源音频锁进 AV latent，并把无损原音
   从新增的“源音频”输出送出——对口型 / 音乐 MV 场景必备。
+- **MiniMax H3 Audio Select**：采样后音频选择器，按 `audio_mode` 在 Unified 的
+  “源音频”（lock，无损原音）与 VAE 解码的生成音频（remix / unlock）之间自动切换。
 - **Media Loader**：参考 Fantastic MiniMaxH3 PromptBuilder 并修改优化的
   媒体加载器（拖拽上传、预览、排序、音轨拆分、裁剪/抽帧、中英双语界面、预设），
   输出 `references` 素材包。
@@ -141,6 +143,8 @@ pip install -r requirements.txt
 - `media_map_json`：媒体编号与来源映射
 - `report`：本地任务、帧数、媒体数量、音频锁定等诊断信息
 - `源音频`：所选 `source_audio` 的原始波形（无损；未选择时为空），lock 模式直接保存它
+- `audio_mode`：当前生效的音频模式（`lock` / `remix` / `unlock`），可直接接
+  **MiniMax H3 Audio Select** 的 `audio_mode` 输入，保证两个节点模式一致
 
 ### 注意
 
@@ -300,14 +304,34 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 - Unified 新增 **“源音频”输出**：直接给出所选源音频的原始波形（未经 VAE 编解码，无损），保存 / 合成时用它；
 - `source_audio=off` 或 `audio_mode=unlock` 时不修改 latent；`remix/unlock` 的最终音轨用 **VAE 解码（音频）** 的输出。
 
+### 节点：MiniMax H3 Audio Select
+
+采样后的音频选择器，用来在“无损源音频”和“生成音频”之间二选一：
+
+| 输入 | 说明 |
+| --- | --- |
+| `source_audio` | 接 Unified to Video 的 **“源音频”** 输出（无损原音） |
+| `generated_audio` | 接 **VAE 解码（音频）** 的 AUDIO 输出（采样器生成音轨） |
+| `audio_mode` | `lock` / `remix` / `unlock`；可直接接 Unified 的 `audio_mode` 输出 |
+
+| 模式 | 输出 |
+| --- | --- |
+| `lock` | `source_audio`（原始波形，不经过 VAE 编解码） |
+| `remix` / `unlock` | `generated_audio`（VAE 解码后的生成音轨） |
+
+> 建议把 Unified 的 `audio_mode` 输出接到 Audio Select 的 `audio_mode` 输入，
+> 这样只改 Unified 一处即可同步两边的选择；不接时也可以手动选择模式。
+
 ### 用法
 
 ```
 Unified to Video
   ├─ positive ──> BasicGuider / Sampler
   ├─ av_latent ──> SamplerCustomAdvanced.latent_image   (source_audio 选中时已锁定音轨)
-  └─ 源音频 ──> 保存/合成（lock 模式，无损原音）
-采样结果 ──> VAEDecodeAudio ──> 保存/合成（remix/unlock/off 时的生成音轨）
+  ├─ 源音频 ──> Audio Select.source_audio
+  └─ audio_mode ──> Audio Select.audio_mode
+采样结果 ──> VAEDecodeAudio ──> Audio Select.generated_audio
+Audio Select.audio ──> 保存/合成（由模式自动选择源音频或生成音轨）
 ```
 
 > 为什么放在 Unified 内部：锁定逻辑必须把 latent 送进采样器，而最终音轨又来自采样器
