@@ -1,6 +1,6 @@
 from comfy_api.latest import ComfyExtension
 
-from .h3_audio_lock import MiniMaxH3AudioLock
+from .h3_audio_lock import MiniMaxH3AudioLock, MiniMaxH3AudioSelect
 from .h3_chat import MiniMaxH3MultimodalChat
 from .h3_concat_av import MiniMaxH3ConcatAVLatent
 from .h3_context_ir import MiniMaxH3ContextIR
@@ -29,6 +29,7 @@ class MiniMaxH3Extension(ComfyExtension):
             MiniMaxH3ContextIR,
             MiniMaxH3MultimodalChat,
             MiniMaxH3AudioLock,
+            MiniMaxH3AudioSelect,
             MiniMaxH3MediaLoaderFantastic,
             MiniMaxH3ReferenceSplitter,
             MiniMaxH3ResolutionSelector,
@@ -48,6 +49,7 @@ __all__ = [
     "MiniMaxH3ContextIR",
     "MiniMaxH3MultimodalChat",
     "MiniMaxH3AudioLock",
+    "MiniMaxH3AudioSelect",
     "MiniMaxH3MediaLoaderFantastic",
     "MiniMaxH3ReferenceSplitter",
     "MiniMaxH3TiledSampler",

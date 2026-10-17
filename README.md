@@ -18,8 +18,9 @@ H3-Context-IR 云端 API 自动把普通提示词优化成结构化 H3 提示词
   结构化 H3 提示词（t2va / i2va / r2va），输出字符串。
 - **MiniMax H3 Multimodal Chat**：多轮对话节点，可加载内置的 MiniMax 官方 Skill、调用任意
   OpenAI 兼容多模态 LLM API、通过 @ 引用 H3 媒体输入，并支持自动化外部文本输入。
-- **MiniMax H3 Audio Lock**：把参考音频锁进 AV latent，成片音频 100% 保持源音频
-  （对口型 / 音乐 MV 场景必备）。
+- **MiniMax H3 Audio Lock / Audio Select**：采样前把参考音频锁进 AV latent，
+  采样后由 Audio Select 选择最终音轨（lock→原始音频，unlock/remix→生成音频）——
+  对口型 / 音乐 MV 场景必备。
 - **Media Loader**：参考 Fantastic MiniMaxH3 PromptBuilder 并修改优化的
   媒体加载器（拖拽上传、预览、排序、音轨拆分、裁剪/抽帧、中英双语界面、预设），
   输出 `references` 素材包。
@@ -79,8 +80,8 @@ pip install -r requirements.txt
 
 安装后**重启 ComfyUI**。节点分类：
 
-- `model/conditioning/minimax/unified`：Unified / Audio Lock / Concat AV Latent /
-  Resolution Selector 等
+- `model/conditioning/minimax/unified`：Unified / Audio Lock / Audio Select /
+  Concat AV Latent / Resolution Selector 等
 - `MiniMax ContextIR`：Context IR
 - `MiniMaxH3 Media/Fant`：Media Loader / Reference Splitter
 
@@ -91,7 +92,8 @@ pip install -r requirements.txt
 2. 接入 **Unified to Video**（`mode=auto` 按已连接输入自动判断任务类型），填写提示词；
 3. `positive` → BasicGuider；`av_latent` → Audio Lock（需要锁定源音频时）→
    SamplerCustomAdvanced；
-4. 采样结果 → VAEDecode + VAEDecodeAudio 保存；需要二次放大采样时用
+4. 采样结果 → VAEDecode + VAEDecodeAudio；用 **Audio Select** 按模式选最终音轨
+   （lock→原始音频，unlock/remix→VAE 解码的生成音频）再保存；需要二次放大采样时用
    Concat AV Latent 把重编码的视频/音频 latent 再喂给采样器；
 5. 需要提示词优化时，用 **Multimodal Chat** 或 **Context IR** 节点生成结构化 H3 提示词。
 
@@ -147,7 +149,8 @@ pip install -r requirements.txt
     仅末帧 → l2va，首尾帧都有 → fl2va；无任何关键帧 → 报错）。
 - `mode=ref2va` 时首尾帧与参考媒体可同时输入（内部按 hybrid 处理）；
   未接任何参考媒体 → 报错。
-- 音频锁定由独立的 **MiniMax H3 Audio Lock** 节点处理（lock / unlock / remix）。
+- 音频锁定由独立的 **MiniMax H3 Audio Lock** 节点处理（lock / unlock / remix）；
+  采样后由 **MiniMax H3 Audio Select** 决定最终音轨（lock→原始，unlock/remix→生成）。
 - 参考媒体在没有 `video_vae` / `audio_vae` 时仍会作为文本编码器条件；
   参考视频的音轨在 token 呈现顺序中按官方规则排在视频前面。
 
@@ -275,7 +278,7 @@ pip install -r requirements.txt
 
 ---
 
-## 节点 4：MiniMax H3 Audio Lock
+## 节点 4：MiniMax H3 Audio Lock / Audio Select
 <img width="327" height="181" alt="image" src="https://github.com/user-attachments/assets/c5dc34e2-8a70-4984-86b6-6bbc1cb93d7d" />
 
 H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和内容**重新生成**一条音频，
@@ -288,15 +291,14 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 | --- | --- |
 | `av_latent` | 来自 Unified / Context IR 节点的联合 AV latent |
 | `original_audio` | 原始音频；lock/remix 时锁进或重绘进 latent |
-| `generated_audio` | 接 VAE 解码（音频）的输出；unlock/remix 时直接透传 |
 | `audio_vae` | MiniMax H3 音频 VAE；lock/remix 时必需 |
-| `mode` | `lock`：锁定原始音频；`unlock`：不锁定，输出解码音频；`remix`：按 `strength` 重绘原始音频，输出解码音频 |
+| `mode` | `lock`：锁定原始音频；`remix`：按 `strength` 重绘原始音频；`unlock`：不修改 latent |
 | `strength` | remix 模式的去噪强度（0–1，lock/unlock 时忽略） |
 
 ### 输出
 
 - `av_latent`：lock/remix 时替换好源音频并带音频 mask 的 latent；unlock 时原样透传
-- `audio`：lock 输出原始音频；unlock/remix 输出 VAE 解码的生成音频
+- `audio`：仅 `lock` 输出原始音频；`unlock/remix` 为空（最终音轨由 Audio Select 提供）
 - `report`：锁定模式、音频 latent 长度等诊断信息
 
 ### 用法
@@ -305,13 +307,28 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 Unified/Context IR 节点
   ├─ positive ──> BasicGuider
   └─ Latent ──> MiniMax H3 Audio Lock ──> SamplerCustomAdvanced.latent_image
-                  (original_audio 接 LoadAudio；generated_audio 接 VAE 解码音频)
-保存视频时用 Audio Lock 的 audio 输出，而不是解码 latent 里的生成音频。
+                  (original_audio 接 LoadAudio)
+采样结果 ──> VAEDecodeAudio ──┐
+LoadAudio ───────────────────┴─> MiniMax H3 Audio Select ──> audio（保存/mux）
 ```
 
 `lock` 模式下视频会尽量与源音频口型/节拍同步，音频 100% 保持为源音频；
-`unlock` 模式不修改 latent，直接把 VAE 解码出的生成音频送到输出；
-`remix` 模式适合“保留节奏与语义、但想换音色”的场景，输出同样取 VAE 解码音频。
+`remix` 模式适合“保留节奏与语义、但想换音色”的场景；`unlock` 不修改 latent。
+
+### Audio Select（采样后选音轨）
+
+Audio Lock 的输出 latent 要送进采样器，而采样器解码出的音频又必须参与最终音轨选择。
+如果同一个节点既“喂给采样器”又“接收采样器的解码结果”，ComfyUI 会按节点级依赖
+判定成环（Audio Lock → VAEDecodeAudio → SamplerCustomAdvanced → Audio Lock）。
+因此把流程拆成两个节点：
+
+| Audio Select 输入 | 说明 |
+| --- | --- |
+| `original_audio` | 原始音频（lock 模式输出它） |
+| `generated_audio` | 接 **VAE 解码（音频）** 的输出（unlock/remix 模式输出它） |
+| `mode` | 与 Audio Lock 的 `mode` 保持一致 |
+
+`audio` 输出直接接保存 / mux 节点即可。
 
 ---
 
