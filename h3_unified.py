@@ -477,17 +477,17 @@ def build_unified_conditioning(
         raise ValueError(f"audio_mode must be lock/remix/unlock, got {audio_mode!r}")
     if str(source_audio or "off").strip().lower() not in {"", "off", "none"}:
         source_audio_value = _pick_source_audio(source_audio, ref_video_audios, ref_audios)
-        if source_audio_value is None:
-            raise ValueError(
-                f"source_audio={source_audio!r} is selected but that input is not connected"
-            )
-        if audio_vae is None:
-            raise ValueError("audio_vae is required when source_audio is selected")
-        if not 0.0 <= float(audio_strength) <= 1.0:
-            raise ValueError("audio_strength must be between 0 and 1")
         if resolved_audio_mode == "unlock":
             lock_report = f"audio_lock={source_audio} unlocked (latent unchanged)"
         else:
+            if source_audio_value is None:
+                raise ValueError(
+                    f"source_audio={source_audio!r} is selected but that input is not connected"
+                )
+            if audio_vae is None:
+                raise ValueError("audio_vae is required when source_audio is selected")
+            if not 0.0 <= float(audio_strength) <= 1.0:
+                raise ValueError("audio_strength must be between 0 and 1")
             latent, _locked_audio, lock_report = lock_audio(
                 latent, source_audio_value, audio_vae,
                 mode=resolved_audio_mode, strength=audio_strength,
@@ -712,11 +712,13 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                     default="off",
                     optional=True,
                     tooltip="源音频：从已连接的视频音轨(video_audio_N)或独立音频(audio_N)中选一个；"
-                            "选中后按 audio_mode 锁进 AV latent，并把原始波形从“源音频”输出。off 不锁定。"),
+                            "选中后按 audio_mode 锁进 AV latent，并把原始波形从“源音频”输出。"
+                            "off 不锁定；audio_mode=unlock 时不校验所选音轨是否已连接。"),
                 io.Combo.Input("audio_mode", options=["lock", "remix", "unlock"], default="lock",
                                optional=True,
                                tooltip="lock：音频 denoise=0（完全保持原音，只生成画面）；"
-                                       "remix：按 audio_strength 重绘；unlock：不修改 latent。"),
+                                       "remix：按 audio_strength 重绘；"
+                                       "unlock：不修改 latent，也不校验 source_audio 是否已连接。"),
                 io.Float.Input("audio_strength", default=0.35, min=0.0, max=1.0, step=0.01,
                                optional=True,
                                tooltip="remix 模式的音频降噪强度；lock/unlock 忽略。"),

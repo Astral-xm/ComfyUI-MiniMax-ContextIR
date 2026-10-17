@@ -132,7 +132,7 @@ pip install -r requirements.txt
 | `first_frame` / `last_frame` | 关键帧 |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 | `source_audio` | **源音频**：`off` / `video_audio_1..3` / `audio_1..3`，从已连接的音轨中选择锁定源 |
-| `audio_mode` | `lock`（音频 denoise=0，完全保持原音）/ `remix`（按强度重绘）/ `unlock`（不改 latent） |
+| `audio_mode` | `lock`（音频 denoise=0，完全保持原音）/ `remix`（按强度重绘）/ `unlock`（不改 latent，也不校验 `source_audio` 是否已连接） |
 | `audio_strength` | remix 模式的音频降噪强度（0–1；lock/unlock 忽略） |
 
 ### 输出
@@ -297,12 +297,14 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 | 参数 | 说明 |
 | --- | --- |
 | `source_audio` | **源音频**：`off` / `video_audio_1..3` / `audio_1..3`；选中后把对应音轨锁进 latent |
-| `audio_mode` | `lock`：音频 denoise=0（完全保持原音，只生成画面）；`remix`：按 `audio_strength` 重绘；`unlock`：不修改 latent |
+| `audio_mode` | `lock`：音频 denoise=0（完全保持原音，只生成画面）；`remix`：按 `audio_strength` 重绘；`unlock`：不修改 latent，也不校验 `source_audio` 是否已连接 |
 | `audio_strength` | remix 模式的音频降噪强度（0–1，lock/unlock 忽略） |
 
 - 选中 `source_audio` 后，Unified 的 `av_latent` 输出即**已锁好音轨**的 latent（带音频 noise_mask），直接接采样器；
 - Unified 新增 **“源音频”输出**：直接给出所选源音频的原始波形（未经 VAE 编解码，无损），保存 / 合成时用它；
-- `source_audio=off` 或 `audio_mode=unlock` 时不修改 latent；`remix/unlock` 的最终音轨用 **VAE 解码（音频）** 的输出。
+- `source_audio=off` 或 `audio_mode=unlock` 时不修改 latent；`audio_mode=unlock` 时
+  不校验 `source_audio` 是否真有音频输入（此时“源音频”输出为空）；
+  `remix/unlock` 的最终音轨用 **VAE 解码（音频）** 的输出。
 
 ### 节点：MiniMax H3 Audio Select
 
