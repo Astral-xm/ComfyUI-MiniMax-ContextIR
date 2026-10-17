@@ -654,7 +654,7 @@ const CSS = `
 .mml-pes-tawrap{position:relative;flex:1;display:flex;min-height:0;}
 .mml-pes-ta{flex:1;width:100%;resize:none;background:#0e1116;color:#dfe4ec;
   border:1px solid #2e3440;border-radius:6px;padding:8px;
-  font:12px ui-monospace,monospace;outline:none;overflow-y:auto;}
+  font:13px ui-monospace,monospace;outline:none;overflow-y:auto;}
 .mml-pes-ta:focus{border-color:#4a5568;}
 .mml-pes-foot{display:flex;align-items:center;gap:8px;}
 .mml-pes-count{font-size:10px;color:#6b7484;font-family:ui-monospace,monospace;}
