@@ -374,92 +374,6 @@ function setupChatNode(node) {
       input.title = "";
     }
   };
-
-  // ComfyUI's bypass resolver pairs an output slot with the input slot at the
-  // same index before falling back to type matching. `prompt_text` is output
-  // slot 1, so while the node is bypassed we mirror the user_prompt link onto
-  // the chat_history widget at input slot 1. The mirror is removed again as
-  // soon as the node is active, so chat_history is never overridden during a
-  // real run.
-  let bypassMirror = null;
-  let syncingBypassMirror = false;
-
-  const inputByName = (name) => node.inputs?.find((i) => i.name === name) || null;
-
-  const inputLinkInfo = (input) => {
-    if (!input || input.link == null) return null;
-    const links = node.graph?.links;
-    const link = typeof links?.get === "function" ? links.get(input.link) : links?.[input.link];
-    const origin = link ? node.graph?.getNodeById(link.origin_id) : null;
-    return link && origin ? { link, origin } : null;
-  };
-
-  const disconnectInputAt = (index, input) => {
-    try {
-      if (typeof node.disconnectInput === "function") {
-        node.disconnectInput(index);
-        return;
-      }
-      const linkId = input?.link;
-      if (linkId != null) node.graph?.removeLink?.(linkId);
-    } catch (e) { /* best effort */ }
-  };
-
-  const removeBypassMirror = (historyInput, historyIndex) => {
-    if (!bypassMirror) return;
-    const current = inputLinkInfo(historyInput);
-    if (current && current.link.origin_id === bypassMirror.originId &&
-        current.link.origin_slot === bypassMirror.originSlot) {
-      disconnectInputAt(historyIndex, historyInput);
-    }
-    bypassMirror = null;
-  };
-
-  const syncBypassMirror = () => {
-    if (syncingBypassMirror || !node.graph) return;
-    const promptInput = inputByName("user_prompt");
-    const historyInput = inputByName("chat_history");
-    if (!promptInput || !historyInput) return;
-    const historyIndex = node.inputs.indexOf(historyInput);
-    const promptLink = inputLinkInfo(promptInput);
-
-    if (node.mode !== 4 || !promptLink) {
-      if (bypassMirror) {
-        syncingBypassMirror = true;
-        try { removeBypassMirror(historyInput, historyIndex); }
-        finally { syncingBypassMirror = false; }
-      }
-      return;
-    }
-
-    const current = inputLinkInfo(historyInput);
-    if (current && current.link.origin_id === promptLink.link.origin_id &&
-        current.link.origin_slot === promptLink.link.origin_slot) return;
-    // Never steal a chat_history link the user connected deliberately.
-    if (historyInput.link != null) return;
-
-    syncingBypassMirror = true;
-    try {
-      promptLink.origin.connect?.(promptLink.link.origin_slot, node, historyIndex) ||
-        node.graph.connect?.(promptLink.origin, promptLink.link.origin_slot, node, historyIndex);
-      bypassMirror = {
-        originId: promptLink.link.origin_id,
-        originSlot: promptLink.link.origin_slot,
-      };
-    } catch (e) {
-      bypassMirror = null;
-    } finally {
-      syncingBypassMirror = false;
-    }
-  };
-
-  const onGraphModeChanged = (event) => {
-    const detail = event?.detail ?? event;
-    if (detail?.nodeId === node.id && detail?.property === "mode") syncBypassMirror();
-  };
-  try {
-    node.graph?.events?.addEventListener?.("node:property:changed", onGraphModeChanged);
-  } catch (e) { /* best effort */ }
   refreshPromptLink();
 
   const saveConversations = () => {
@@ -818,7 +732,6 @@ function setupChatNode(node) {
       renderSidebar();
       updateSkillBar();
       refreshPromptLink();
-      syncBypassMirror();
     }, 0);
     return result;
   };
@@ -828,26 +741,16 @@ function setupChatNode(node) {
     const result = originalOnConnectionsChange?.apply(this, arguments);
     refreshMediaTokens();
     refreshPromptLink();
-    syncBypassMirror();
     return result;
   };
 
   const refreshTimer = window.setInterval(() => {
     refreshMediaTokens();
     refreshPromptLink();
-    syncBypassMirror();
   }, 1000);
   const originalOnRemoved = node.onRemoved;
   node.onRemoved = function () {
     window.clearInterval(refreshTimer);
-    try {
-      node.graph?.events?.removeEventListener?.("node:property:changed", onGraphModeChanged);
-    } catch (e) { /* best effort */ }
-    if (bypassMirror) {
-      const historyInput = inputByName("chat_history");
-      const historyIndex = historyInput ? node.inputs.indexOf(historyInput) : -1;
-      if (historyInput && historyIndex >= 0) removeBypassMirror(historyInput, historyIndex);
-    }
     return originalOnRemoved?.apply(this, arguments);
   };
 
@@ -858,7 +761,6 @@ function setupChatNode(node) {
     renderSidebar();
     updateSkillBar();
     refreshPromptLink();
-    syncBypassMirror();
   }, 0);
 }
 
