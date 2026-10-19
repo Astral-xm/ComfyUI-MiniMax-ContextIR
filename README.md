@@ -222,7 +222,7 @@ pip install -r requirements.txt
 多轮对话节点，支持 Skill 加载与外部多模态 API：
 
 - **Skill 加载**：直接在节点的 `skill` 下拉框选择即可生效（自动发现本插件 `skills/`
-  下内置的 MiniMax 官方 Skill，含 `h3-prompt-writing`；
+  下内置的 Skill，含 `h3-prompt-writing`（EN）、`h3-prompt-writing-CN`（中文主体）及自定义 Skill；
   `skill=auto` 时由外部 LLM 根据首个任务自动选择）。选择后 Skill 内容会注入系统提示词，
   并启用阶段式执行协议：模型按阶段推进、可请求按需加载 references、
   通过 `<mmx_skill_state>` 状态标记返回阶段/选项/final。
@@ -246,8 +246,8 @@ pip install -r requirements.txt
 | --- | --- |
 | `prompt` | 用户消息（聊天窗口内填写，支持 @ 引用） |
 | `input_string` | 外部文本输入端口；连接外部文本输出后优先作为消息输入（覆盖聊天窗口手输内容），方便自动化分段生成 |
-| `user_prompt` | 提示词字符串端口（所有媒体端口之后）；连接的字符串自动加载到聊天对话框，且执行时直接作为用户消息（对话框有手输内容时优先）。节点被屏蔽（Bypass）时该内容直接透传到 `prompt_text` 输出 |
-| `chat_history` / `request_id` | 由前端聊天窗口自动维护 |
+| `user_prompt` | 提示词字符串端口（所有媒体端口之后）。连接且非空时进入**单轮外部提示词模式**：直接使用该字符串，忽略聊天窗口、`chat_history`、`conversations` 和 `request_id`；聊天发送按钮禁用。只要该字符串和其他输入都不变，ComfyUI 会直接复用缓存。节点被屏蔽（Bypass）时该内容仍透传到 `prompt_text` 输出 |
+| `chat_history` / `request_id` | 由前端聊天窗口自动维护；连接非空 `user_prompt` 时忽略 |
 | `skill` | auto 或具体 Skill |
 | `prompt_mode` | 提示词生成模式：auto / T2VA / I2VA / FL2VA / L2VA / REF2VA；auto 时由模型根据已连接端口和需求自动判断；显式模式会屏蔽不属于该模式的媒体输入：T2VA 忽略全部媒体；I2VA / L2VA / FL2VA 忽略参考媒体（缺必需关键帧时报错）；REF2VA 允许首/尾关键帧与参考媒体并用（无任何参考媒体时报错） |
 | `duration` | 目标视频时长（秒，1–30；2–15 为训练范围，15–30 未测试） |

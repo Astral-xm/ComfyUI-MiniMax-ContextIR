@@ -392,11 +392,11 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
                 io.String.Input("prompt", multiline=True, default="",
                                 tooltip="User message; type @ to reference connected media."),
                 io.String.Input("chat_history", multiline=True, default="[]",
-                                tooltip="JSON chat history, maintained by the node."),
+                                tooltip="JSON chat history, maintained by the node. Ignored when user_prompt is connected (stateless single-turn mode)."),
                 io.String.Input("conversations", multiline=True, default="{}",
                                 tooltip="Conversation store managed by the chat UI (hidden)."),
                 io.String.Input("request_id", default="",
-                                tooltip="Frontend request id; set automatically by the chat UI."),
+                                tooltip="Frontend request id; set automatically by the chat UI. Ignored when user_prompt is connected."),
                 io.Combo.Input("skill", options=_skill_options(), default=AUTO,
                                tooltip="auto asks the LLM to pick a skill on the first message."),
                 io.Boolean.Input("auto_load_references", default=True,
@@ -443,6 +443,9 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
                         names=[f"ref_audio_{i}" for i in range(1, 4)], min=0)),
                 io.String.Input("user_prompt", force_input=True, optional=True, default="",
                                 tooltip="Prompt string port; connected text auto-loads into the chat dialog. "
+                                        "When connected and non-empty, the node runs in stateless single-turn mode: "
+                                        "chat history / conversations / request_id are ignored, and ComfyUI can cache "
+                                        "the result while this text and all other inputs stay unchanged. "
                                         "When the node is bypassed, this text passes through to prompt_text."),
             ],
             outputs=[
@@ -488,9 +491,17 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
         if not (1 <= duration <= 30):
             raise ValueError("Duration must be between 1 and 30 seconds.")
         seed_value = int(seed) if int(seed) >= 0 else None
-        # dialog text first; fall back to the connected string port
-        user_text = (prompt or "").strip() or (user_prompt or "").strip()
-        history, meta = _parse_history(chat_history)
+        # A connected/non-empty user_prompt is a stateless single-turn request:
+        # ignore the chat window, history, conversations and request_id so
+        # ComfyUI can cache the node when the external prompt is unchanged.
+        external_mode = bool((user_prompt or "").strip())
+        if external_mode:
+            user_text = (user_prompt or "").strip()
+            history, meta = [], _default_meta()
+        else:
+            # Multi-turn chat: dialog text first; fall back to the string port.
+            user_text = (prompt or "").strip() or (user_prompt or "").strip()
+            history, meta = _parse_history(chat_history)
         history = _trim_history(history, int(max_history_rounds))
         media = collect_media_inputs(
             first_frame, last_frame, ref_images, ref_videos, ref_video_audios, ref_audios
@@ -510,10 +521,13 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
                     f"{token} is not connected; connect it to the node or remove it from the message."
                 )
         prompt_text = render_prompt_text(user_text, label_map)
-        input_source = ("prompt" if (prompt or "").strip()
+        input_source = ("user_prompt" if external_mode
+                        else "prompt" if (prompt or "").strip()
                         else "user_prompt" if (user_prompt or "").strip() else "none")
         report_lines = [f"input_source={input_source}", f"media={len(media)}",
                         f"tokens={len(tokens)}", f"seed={seed_value}", f"mode={effective_mode}"]
+        if external_mode:
+            report_lines.append("external_prompt=True")
         if len(full_media) > len(media):
             report_lines.append(f"ignored_media={len(full_media) - len(media)}")
 
@@ -529,11 +543,12 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
             report_lines.append("no_input=reuse_last")
             report = "\n".join(report_lines)
             ui = {
-                "chat_history": [history_json],
                 "reply": [reply],
                 "prompt_text": [prompt_text],
                 "report": [report],
             }
+            if not external_mode:
+                ui["chat_history"] = [history_json]
             return io.NodeOutput(reply, prompt_text, history_json, report, ui=ui)
 
         skill_to_use = None
@@ -663,11 +678,12 @@ class MiniMaxH3MultimodalChat(io.ComfyNode):
 
         report = "\n".join(report_lines)
         ui = {
-            "chat_history": [history_json],
             "reply": [reply],
             "prompt_text": [prompt_text],
             "report": [report],
         }
+        if not external_mode:
+            ui["chat_history"] = [history_json]
         return io.NodeOutput(reply, prompt_text, history_json, report, ui=ui)
 
 

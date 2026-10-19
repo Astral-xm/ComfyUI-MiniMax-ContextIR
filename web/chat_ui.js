@@ -321,6 +321,9 @@ function setupChatNode(node) {
     node.inputs?.find((i) => (i.name === "input_string" || i.name === "prompt" ||
       i.name === "user_prompt") && i.link != null) || null;
 
+  const isExternalPromptMode = () =>
+    !!node.inputs?.find((i) => i.name === "user_prompt" && i.link != null);
+
   const getLinkedPromptValue = () => {
     const promptInput = findLinkedTextInput();
     if (!promptInput) return null;
@@ -355,17 +358,21 @@ function setupChatNode(node) {
 
   const refreshPromptLink = () => {
     const linked = findLinkedTextInput();
+    const external = isExternalPromptMode();
     promptLinked = !!linked;
     if (linked) {
       const value = getLinkedPromptValue();
       if (value !== null) {
         input.value = value;
-        // the new string port loads into an editable dialog; the legacy
-        // input_string/prompt links keep the read-only override behavior
-        input.readOnly = linked.name !== "user_prompt";
-        input.title = linked.name === "user_prompt"
-          ? "已加载外部字符串（可直接编辑后发送）"
-          : "已连接外部文本输入（发送时以外部文本为准）";
+        // A linked user_prompt is a stateless single-turn request. Keep the
+        // dialog read-only so chat history/request_id stay stable and ComfyUI
+        // can reuse the cached result when the external text is unchanged.
+        input.readOnly = external || linked.name !== "user_prompt";
+        input.title = external
+          ? "外部 user_prompt 模式（单轮，缓存生效；请编辑上游字符串节点）"
+          : linked.name === "user_prompt"
+            ? "已加载外部字符串（可直接编辑后发送）"
+            : "已连接外部文本输入（发送时以外部文本为准）";
         status.textContent = input.title;
         status.dataset.state = "idle";
       }
@@ -373,6 +380,8 @@ function setupChatNode(node) {
       input.readOnly = false;
       input.title = "";
     }
+    sendButton.disabled = !!node.__mmxChatBusy || external;
+    clearButton.disabled = external;
   };
   refreshPromptLink();
 
@@ -519,6 +528,11 @@ function setupChatNode(node) {
   };
 
   const clearAll = () => {
+    if (isExternalPromptMode()) {
+      status.textContent = "外部 user_prompt 模式请直接运行工作流";
+      status.dataset.state = "idle";
+      return;
+    }
     conversations = { active: 0, items: [{ title: "新对话", history: "[]" }] };
     historyWidget.value = "[]";
     promptWidget.value = "";
@@ -534,14 +548,20 @@ function setupChatNode(node) {
 
   const setBusy = (busy, message = busy ? "正在生成..." : "准备就绪", state = busy ? "busy" : "idle") => {
     node.__mmxChatBusy = busy;
-    sendButton.disabled = busy;
-    clearButton.disabled = busy;
+    const external = isExternalPromptMode();
+    sendButton.disabled = busy || external;
+    clearButton.disabled = busy || external;
     input.disabled = busy;
     status.textContent = message;
     status.dataset.state = state;
   };
 
   const send = async () => {
+    if (isExternalPromptMode()) {
+      status.textContent = "外部 user_prompt 模式请直接运行工作流";
+      status.dataset.state = "idle";
+      return;
+    }
     const text = input.value.trim();
     if ((!text && !promptLinked) || node.__mmxChatBusy) return;
     const item = conversations.items[conversations.active];
@@ -687,8 +707,9 @@ function setupChatNode(node) {
   const originalOnExecuted = node.onExecuted;
   node.onExecuted = function (output) {
     originalOnExecuted?.apply(this, arguments);
+    const external = isExternalPromptMode();
     const rawHistory = firstValue(output?.chat_history);
-    if (typeof rawHistory === "string") historyWidget.value = rawHistory;
+    if (!external && typeof rawHistory === "string") historyWidget.value = rawHistory;
     const reply = firstValue(output?.reply);
     const promptText = firstValue(output?.prompt_text);
     const report = firstValue(output?.report);
@@ -706,11 +727,11 @@ function setupChatNode(node) {
     if (typeof promptText === "string" && promptText) {
       status.textContent = reply ? "已回复" : `已生成提示词：${promptText.slice(0, 120)}${promptText.length > 120 ? "…" : ""}`;
     }
-    if (typeof reply === "string" && reply) {
+    if (!external && typeof reply === "string" && reply) {
       promptWidget.value = "";
       input.value = "";
     }
-    if (conversations.items[conversations.active]) {
+    if (!external && conversations.items[conversations.active]) {
       conversations.items[conversations.active].history = historyWidget.value;
       saveConversations();
     }
