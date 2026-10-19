@@ -46,6 +46,8 @@ REF_IMAGE_SHORT_EDGE = 2048
 FPS = 24
 AUDIO_LATENT_FPS = 40
 
+# Legacy ComfyUI builds let refs overwrite cond_video_latents; this sentinel
+# keeps the keyframe latents in front of the real refs on those builds.
 HYBRID_KEYFRAME_SENTINEL = "unified_keyframe_latent"
 
 
@@ -368,8 +370,17 @@ def _mode_media_flags(resolved: str) -> tuple[bool, bool, bool]:
     return True, True, True  # ref2va / hybrid
 
 
-def assert_hybrid_layout_contract() -> None:
-    """Fail loudly if ComfyUI changes keyframe/ref latent assembly."""
+def assert_hybrid_layout_contract() -> str:
+    """Validate H3 keyframe/ref assembly and return the hybrid ref strategy.
+
+    ``"append"``
+        Keyframe latents and reference latents are appended in that order
+        (ComfyUI 0.42.1+). Real refs only are passed to ``minimax_refs``.
+
+    ``"sentinel"``
+        Reference latents overwrite the keyframe latent list. Keyframe
+        sentinels must be prepended to the refs so they are not lost.
+    """
     try:
         from comfy.ldm.minimax.model import PackedLayout
         from comfy.model_base import MiniMaxH3 as MiniMaxH3BaseModel
@@ -380,30 +391,64 @@ def assert_hybrid_layout_contract() -> None:
         ) from exc
 
     extra_conds_source = inspect.getsource(MiniMaxH3BaseModel.extra_conds)
-    required_contract = 'payload["cond_video_latents"] = [r["latent"] for r in refs if "latent" in r]'
-    if required_contract not in extra_conds_source:
+    append_contract = (
+        'payload["cond_video_latents"] = payload.get("cond_video_latents", [])'
+        ' + [r["latent"] for r in refs if "latent" in r]'
+    ) in extra_conds_source
+    overwrite_contract = (
+        'payload["cond_video_latents"] = [r["latent"] for r in refs if "latent" in r]'
+    ) in extra_conds_source
+    if append_contract:
+        strategy = "append"
+    elif overwrite_contract:
+        strategy = "sentinel"
+    else:
         raise RuntimeError(
             "This ComfyUI build changed MiniMax H3 ref/keyframe latent assembly; "
             "the unified Hybrid path is disabled until its ordering can be revalidated."
         )
 
-    keyframe = {"resolved_frame_index": 0, "latent": torch.zeros(1)}
-    baseline = PackedLayout(1, 2, 2, 2, 1, keyframes=[keyframe], frame_count=5)
-    hybrid = PackedLayout(
+    keyframe = {"resolved_frame_index": 0, "latent": torch.zeros(1, 2, 2, 2, 2)}
+    frame_count_kwargs = (
+        {"frame_count": 5}
+        if "frame_count" in inspect.signature(PackedLayout.__init__).parameters
+        else {}
+    )
+    baseline = PackedLayout(
+        1, 2, 2, 2, 1, keyframes=[keyframe], **frame_count_kwargs
+    )
+    with_sentinel = PackedLayout(
         1,
         2,
         2,
         2,
         1,
         keyframes=[keyframe],
-        refs=[{"kind": HYBRID_KEYFRAME_SENTINEL, "latent": torch.zeros(1)}],
-        frame_count=5,
+        refs=[{"kind": HYBRID_KEYFRAME_SENTINEL, "latent": torch.zeros(1, 2, 2, 2, 2)}],
+        **frame_count_kwargs,
     )
-    if baseline.segments != hybrid.segments or baseline.seq_len != hybrid.seq_len:
+    if baseline.segments != with_sentinel.segments or baseline.seq_len != with_sentinel.seq_len:
         raise RuntimeError(
-            "This ComfyUI build changed MiniMax H3 PackedLayout reference handling; "
+            "This ComfyUI build changed MiniMax H3 PackedLayout sentinel handling; "
             "the unified exact-keyframe + reference path is disabled to prevent corrupt conditioning."
         )
+    if strategy == "append":
+        real_ref = {
+            "kind": "image",
+            "latent_h": 2,
+            "latent_w": 2,
+            "latent": torch.zeros(1, 2, 2, 2, 2),
+        }
+        with_ref = PackedLayout(
+            1, 2, 2, 2, 1, keyframes=[keyframe], refs=[real_ref],
+            **frame_count_kwargs,
+        )
+        if with_ref.segments == baseline.segments or with_ref.seq_len == baseline.seq_len:
+            raise RuntimeError(
+                "This ComfyUI build no longer packs MiniMax H3 reference latents; "
+                "the unified exact-keyframe + reference path is disabled."
+            )
+    return strategy
 
 
 # ---------------------------------------------------------------- conditioning build
@@ -603,12 +648,16 @@ def build_unified_conditioning(
     )
 
     if keyframes and real_ref_blocks:
-        assert_hybrid_layout_contract()
+        hybrid_strategy = assert_hybrid_layout_contract()
         ref_items = [{"type": "image", "data": image} for image in keyframe_images] + real_ref_items
-        refs = [
-            {"kind": HYBRID_KEYFRAME_SENTINEL, "latent": keyframe["latent"]}
-            for keyframe in keyframes
-        ] + real_ref_blocks
+        refs = list(real_ref_blocks)
+        if hybrid_strategy == "sentinel":
+            # Older ComfyUI overwrites cond_video_latents with the refs list;
+            # keep the keyframe latents at the front through sentinel entries.
+            refs = [
+                {"kind": HYBRID_KEYFRAME_SENTINEL, "latent": keyframe["latent"]}
+                for keyframe in keyframes
+            ] + refs
         tokens = clip.tokenize(conditioned_prompt, minimax_ref_items=ref_items)
     elif real_ref_blocks:
         refs = real_ref_blocks
