@@ -87,6 +87,37 @@ pip install -r requirements.txt
 - `MiniMax ContextIR`：Context IR
 - `MiniMaxH3 Media/Fant`：Media Loader / Reference Splitter
 
+## 版本与回退
+
+- 当前版本：`v2026.10.20`
+- 上一发布版本：`v2026.09.13`
+
+每个发布版本都有独立 Git 标签，回退不会改动或覆盖新版本。更新到最新版：
+
+```bash
+git fetch --tags
+git checkout main
+git pull
+pip install -r requirements.txt
+```
+
+回退到上一发布版本：
+
+```bash
+git fetch --tags
+git checkout v2026.09.13
+pip install -r requirements.txt
+```
+
+查看全部可回退版本：
+
+```bash
+git tag --list "v*" --sort=-creatordate
+```
+
+切换版本后请重启 ComfyUI；浏览器前端如有缓存，再按 `Ctrl + F5` 强制刷新。
+详细变更见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 快速开始
 
 1. 用 **Media Loader** 上传参考图/视频/音频，点击 **刷新输出拆分器**

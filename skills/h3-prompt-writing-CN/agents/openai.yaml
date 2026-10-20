@@ -1,0 +1,4 @@
+interface:
+  display_name: "MiniMax H3 Prompt Writing -CN"
+  short_description: "Write H3 base and full-reference prompts with a Chinese descriptive body"
+  default_prompt: "Use $h3-prompt-writing-CN to rewrite this multimodal request into a MiniMax H3 generation prompt with a Chinese descriptive body while keeping all fixed H3 tokens in English."

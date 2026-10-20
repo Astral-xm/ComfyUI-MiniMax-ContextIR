@@ -66,13 +66,13 @@ def _partition(items):
     emitted just after its <Video N>) or to the standalone group,
     depending on the item's audio_mode.
 
-    Pictures use cell semantics: the first three cells are fixed —
-    FirstFrame, LastFrame and image1 — so an image loaded there keeps its
-    own cell (a switched-off or missing cell outputs None). Everything
-    after them is a shifting tail (image2, image3, ...): only the enabled
-    pictures are kept, so closing or removing one pulls the following
-    cells forward. States saved before cells existed carry no ``slot``
-    field and number their first three pictures into the fixed cells.
+    Pictures use cell semantics: FirstFrame and LastFrame are fixed cells,
+    so an image loaded there keeps its own cell (a switched-off or missing
+    keyframe cell outputs None). image1 is pinned while enabled, but a
+    switched-off image1 does not hold an output slot: the first enabled
+    picture after the keyframes becomes image1, and the remaining enabled
+    pictures close up behind it. States saved before cells existed carry no
+    ``slot`` field and number their first three pictures into the cells.
     """
     pictures, videos, video_audios, audios, standalone_tracks, strings = \
         [], [], [], [], [], []
@@ -88,11 +88,14 @@ def _partition(items):
             fixed[slot] = item
         else:
             tail.append(item)
-    for slot in (1, 2, 3):
+    for slot in (1, 2):
         item = fixed.get(slot)
         pictures.append(
             item if (item is not None and item.get("enabled") is not False) else None
         )
+    item = fixed.get(3)
+    if item is not None and item.get("enabled") is not False:
+        pictures.append(item)
     pictures += [item for item in tail if item.get("enabled") is not False]
 
     for item in items:

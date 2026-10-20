@@ -419,12 +419,13 @@ export function computeTags(all) {
 
 /** Cells of the picture grid, in display order.
  *
- *  The first three cells are fixed — FirstFrame, LastFrame and image1 — so
- *  an image loaded there only ever occupies that cell, even when the cells
- *  in front of it are still empty. Everything after them is a shifting tail
- *  (image2, image3, ...): it numbers the enabled pictures in order, so
- *  closing or removing one pulls the following cells forward. A trailing
- *  "+" cell appears once the image1 cell (or the tail) exists. */
+ *  FirstFrame and LastFrame are fixed cells: an image loaded there only ever
+ *  occupies that cell, even when the cell in front of it is still empty.
+ *  image1 is a pinned cell, but it only consumes the image1 number while it
+ *  is enabled. When it is switched off, the first enabled picture after the
+ *  two keyframes becomes image1; the following enabled pictures are numbered
+ *  image2, image3, ... so closing one pulls the later numbers forward. A
+ *  trailing "+" cell offers the next image number. */
 export function pictureGridLayout(all) {
   const pics = (all || []).filter((it) => it.kind === "picture");
   const fixed = new Map();
@@ -439,17 +440,32 @@ export function pictureGridLayout(all) {
     const free = [1, 2, 3].find((s) => !fixed.has(s));
     take(it, free == null ? null : free);
   });
-  const cells = [];
-  const names = ["FirstFrame", "LastFrame", "image1"];
-  for (let s = 1; s <= 3; s++)
-    cells.push({ slot: s, item: fixed.get(s) || null, label: names[s - 1] });
+  const cells = [
+    { slot: 1, item: fixed.get(1) || null, label: "FirstFrame" },
+    { slot: 2, item: fixed.get(2) || null, label: "LastFrame" },
+  ];
+  const pinned = fixed.get(3) || null;
   let num = 1;
+  if (pinned) {
+    cells.push({
+      slot: 3,
+      item: pinned,
+      label: isOn(pinned) ? `image${num++}` : "off",
+    });
+  } else if (!tail.length) {
+    // Keep the minimum three-cell layout while there is nothing shifting in
+    // behind it; once a tail picture exists, that picture becomes image1.
+    cells.push({ slot: 3, item: null, label: `image${num++}` });
+  }
   tail.forEach((it) => {
-    if (isOn(it)) num += 1;
-    cells.push({ slot: null, item: it, label: isOn(it) ? `image${num}` : "off" });
+    cells.push({
+      slot: null,
+      item: it,
+      label: isOn(it) ? `image${num++}` : "off",
+    });
   });
-  if (fixed.get(3) || tail.length)
-    cells.push({ slot: null, item: null, label: `image${num + 1}` });
+  if (pinned || tail.length)
+    cells.push({ slot: null, item: null, label: `image${num}` });
   return cells;
 }
 
