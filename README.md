@@ -3,6 +3,8 @@
 
 （B 站）：https://space.bilibili.com/176339505
 
+（YouTube）：https://www.youtube.com/@Astral%E6%98%9F%E8%8A%92
+
 # ComfyUI-MiniMax-ContextIR
 
 MiniMax H3 视频生成全家桶：一个 ComfyUI 插件，十一个节点，覆盖
