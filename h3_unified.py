@@ -522,13 +522,19 @@ def build_unified_conditioning(
         raise ValueError(f"audio_mode must be lock/remix/unlock, got {audio_mode!r}")
     if str(source_audio or "off").strip().lower() not in {"", "off", "none"}:
         source_audio_value = _pick_source_audio(source_audio, ref_video_audios, ref_audios)
-        if resolved_audio_mode == "unlock":
+        if source_audio_value is None:
+            if resolved_audio_mode in {"lock", "remix"}:
+                requested_mode = resolved_audio_mode
+                resolved_audio_mode = "unlock"
+                lock_report = (
+                    f"audio_lock={source_audio} is disabled or disconnected; "
+                    f"audio_mode {requested_mode} -> unlock (latent unchanged)"
+                )
+            else:
+                lock_report = f"audio_lock={source_audio} unlocked (latent unchanged)"
+        elif resolved_audio_mode == "unlock":
             lock_report = f"audio_lock={source_audio} unlocked (latent unchanged)"
         else:
-            if source_audio_value is None:
-                raise ValueError(
-                    f"source_audio={source_audio!r} is selected but that input is not connected"
-                )
             if audio_vae is None:
                 raise ValueError("audio_vae is required when source_audio is selected")
             if not 0.0 <= float(audio_strength) <= 1.0:
@@ -762,7 +768,7 @@ class MiniMaxH3UnifiedToVideo(io.ComfyNode):
                     optional=True,
                     tooltip="源音频：从已连接的视频音轨(video_audio_N)或独立音频(audio_N)中选一个；"
                             "选中后按 audio_mode 锁进 AV latent，并把原始波形从“源音频”输出。"
-                            "off 不锁定；audio_mode=unlock 时不校验所选音轨是否已连接。"),
+                            "off 不锁定；所选音轨被关闭或未连接时，lock/remix 自动降级为 unlock。"),
                 io.Combo.Input("audio_mode", options=["lock", "remix", "unlock"], default="lock",
                                optional=True,
                                tooltip="lock：音频 denoise=0（完全保持原音，只生成画面）；"

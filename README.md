@@ -89,8 +89,9 @@ pip install -r requirements.txt
 
 ## 版本与回退
 
-- 当前版本：`v2026.10.20`
-- 上一发布版本：`v2026.09.13`
+- 当前版本：`v2026.10.31`
+- 上一发布版本：`v2026.10.20`
+- 更早版本：`v2026.09.13`
 
 每个发布版本都有独立 Git 标签，回退不会改动或覆盖新版本。更新到最新版：
 
@@ -105,7 +106,7 @@ pip install -r requirements.txt
 
 ```bash
 git fetch --tags
-git checkout v2026.09.13
+git checkout v2026.10.20
 pip install -r requirements.txt
 ```
 
@@ -163,7 +164,7 @@ git tag --list "v*" --sort=-creatordate
 | `first_frame` / `last_frame` | 关键帧 |
 | `ref_images` / `ref_videos` / `ref_video_audios` / `ref_audios` | 参考媒体（接满自动出现下一路） |
 | `source_audio` | **源音频**：`off` / `video_audio_1..3` / `audio_1..3`，从已连接的音轨中选择锁定源 |
-| `audio_mode` | `lock`（音频 denoise=0，完全保持原音）/ `remix`（按强度重绘）/ `unlock`（不改 latent，也不校验 `source_audio` 是否已连接） |
+| `audio_mode` | `lock`（音频 denoise=0，完全保持原音）/ `remix`（按强度重绘）/ `unlock`（不改 latent，也不校验 `source_audio` 是否已连接）；所选音轨被关闭或未连接时 lock/remix 自动降级为 unlock |
 | `audio_strength` | remix 模式的音频降噪强度（0–1；lock/unlock 忽略） |
 
 ### 输出
@@ -328,7 +329,7 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 | 参数 | 说明 |
 | --- | --- |
 | `source_audio` | **源音频**：`off` / `video_audio_1..3` / `audio_1..3`；选中后把对应音轨锁进 latent |
-| `audio_mode` | `lock`：音频 denoise=0（完全保持原音，只生成画面）；`remix`：按 `audio_strength` 重绘；`unlock`：不修改 latent，也不校验 `source_audio` 是否已连接 |
+| `audio_mode` | `lock`：音频 denoise=0（完全保持原音，只生成画面）；`remix`：按 `audio_strength` 重绘；`unlock`：不修改 latent，也不校验 `source_audio` 是否已连接；音轨被关闭/未连接时自动降级为 unlock |
 | `audio_strength` | remix 模式的音频降噪强度（0–1，lock/unlock 忽略） |
 
 - 选中 `source_audio` 后，Unified 的 `av_latent` 输出即**已锁好音轨**的 latent（带音频 noise_mask），直接接采样器；
@@ -336,6 +337,8 @@ H3 的 `ref_audio` 本质上只是“参考”：模型会按音色、节奏和�
 - `source_audio=off` 或 `audio_mode=unlock` 时不修改 latent；`audio_mode=unlock` 时
   不校验 `source_audio` 是否真有音频输入（此时“源音频”输出为空）；
   `remix/unlock` 的最终音轨用 **VAE 解码（音频）** 的输出。
+- Media Loader 中关闭或删除音频后，即使 `source_audio` 仍选择 `audio_N` 也不会中断工作流；
+  `lock/remix` 会自动降级为 `unlock`，并在 `report` 中注明。
 
 ### 节点：MiniMax H3 Audio Select
 

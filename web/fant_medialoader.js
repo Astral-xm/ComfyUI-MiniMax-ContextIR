@@ -651,8 +651,10 @@ const CSS = `
 .mml-strrow.off:hover{opacity:.7;}
 .mml-strrow.add{justify-content:center;color:#4d5563;cursor:pointer;font-size:13px;}
 .mml-strrow.add:hover{border-color:#59637a;color:#8a93a3;}
-.mml-strinput{flex:1;min-width:0;background:none;border:0;color:#dfe4ec;
-  font:11px system-ui,sans-serif;outline:none;padding:2px 0;}
+.mml-strinput{flex:1;min-width:0;align-self:stretch;box-sizing:border-box;
+  background:none;border:0;color:#dfe4ec;font:11px/1.25 system-ui,sans-serif;
+  outline:none;padding:3px 0;margin:0;resize:none;overflow-y:auto;
+  white-space:pre-wrap;overflow-wrap:anywhere;cursor:text;}
 .mml-strdrag{cursor:grab;color:#4d5563;font-size:11px;line-height:1;
   flex-shrink:0;user-select:none;padding:0 1px;}
 .mml-strdrag:hover{color:#a8b4c8;}
@@ -2701,12 +2703,18 @@ class LoaderPanel {
     left.append(el("div", { class: "mml-sec" }, "prompts",
       el("span", {}, `${strings.length}/${MAX.strings}`)));
     const strRows = strings.map((it) => {
-      const input = el("input", { class: "mml-strinput", type: "text",
-        placeholder: "prompt text\u2026", value: it.text || "" });
+      const input = el("textarea", { class: "mml-strinput", rows: 1,
+        placeholder: "prompt text\u2026", value: it.text || "",
+        spellcheck: false,
+        title: "Enter adds a new line; Ctrl/Command+Enter saves" });
       const save = () => { it.text = input.value; this.commit(); };
       input.addEventListener("change", save);
       input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { save(); input.blur(); }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          save();
+          input.blur();
+        }
       });
       return el("div", { class: "mml-strrow" + (isOn(it) ? "" : " off") },
         this.powerBtn(it),

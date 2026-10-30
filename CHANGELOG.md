@@ -1,8 +1,20 @@
 # 更新日志
 
-## v2026.10.20
+## v2026.10.31
 
 当前发布版本。
+
+- Media Loader：提示词行改为多行 `textarea`，直接粘贴会保留换行；普通 Enter 换行，
+  Ctrl/Command+Enter 保存。
+- Tiled Sampler：新增独立的 **MiniMax H3 Tiled Sampler (Legacy)** 节点，
+  node_id 为 `MiniMaxH3TiledSamplerLegacy`，保留旧版实现用于 A/B 对比；
+  当前版本 `MiniMaxH3TiledSampler` 不受影响。
+- Unified to Video：选中的源音频被 Media Loader 关闭或未连接时，
+  `lock/remix` 自动降级为 `unlock`，不再中断工作流，并在 `report` 中注明。
+
+## v2026.10.20
+
+上一发布版本，保留用于回退。
 
 - Media Loader：`image1` 关闭后不再占用图片编号，后续第一张启用图片自动成为
   `image1`；Reference Splitter 的实际输出同步前移，避免界面与下游标签错位。
@@ -28,7 +40,7 @@
 
 ```bash
 git fetch --tags
-git checkout v2026.09.13
+git checkout v2026.10.20
 pip install -r requirements.txt
 ```
 
